@@ -31,7 +31,43 @@ function launchInstantAnimations(board, success, type) {
   }
   board.reset();
   shortestPathChange(board.nodes[board.target], shortestNodes[j - 1]);
-  board.shortestPathNodesToAnimate = [];
+
+  // Final event for panel values + metrics in instant mode
+  if (board.currentTrace) {
+    var visitedCount = nodes.length;
+    board.lastVisitedCount = visitedCount;
+    var costObj = board.computePathCost();
+    var pathCost = costObj && costObj.cost ? costObj.cost : 0;
+    var totalNodes = Object.keys(board.nodes).length;
+    var frontierSize = Math.max(totalNodes - visitedCount, 0);
+    var lastEvent = board.currentTrace[board.currentTrace.length - 1];
+    var finalValues = { g: pathCost, h: 0, f: pathCost };
+    var finalMetrics = {
+      visitedCount: visitedCount,
+      pathCost: pathCost,
+      frontierSize: frontierSize
+    };
+
+    if (lastEvent && lastEvent.t === "found_target") {
+      lastEvent.values = finalValues;
+      lastEvent.metrics = Object.assign({}, lastEvent.metrics, finalMetrics);
+      if (board.updateExplanationPanel) {
+        board.updateExplanationPanel(lastEvent);
+      }
+    } else {
+      var finalEvent = {
+        t: "found_target",
+        step: board.currentTrace.length,
+        target: board.target,
+        values: finalValues,
+        metrics: finalMetrics
+      };
+      board.currentTrace.push(finalEvent);
+      if (board.updateExplanationPanel) {
+        board.updateExplanationPanel(finalEvent);
+      }
+    }
+  }
 
   function change(currentNode, previousNode) {
     let currentHTMLNode = document.getElementById(currentNode.id);
