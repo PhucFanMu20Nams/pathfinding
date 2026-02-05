@@ -35,7 +35,7 @@ function serializeRun(board, success, visitedCount) {
         },
 
         result: {
-            found: success === "success!" || success === true,
+            found: success === "success!" || success === "success" || success === true,
             pathLength: success ? computePathLength(board) : null,
             pathCost: success ? computePathCost(board) : null,
             nodesVisited: visitedCount
@@ -69,6 +69,26 @@ function extractWeights(board) {
 }
 
 function computePathLength(board) {
+    if (board.currentAlgorithm === "bidirectional" &&
+        board.shortestPathNodesToAnimate &&
+        board.shortestPathNodesToAnimate.length) {
+        var length = 0;
+        var includesStart = false;
+        var includesTarget = false;
+
+        for (var i = 0; i < board.shortestPathNodesToAnimate.length; i++) {
+            var node = board.shortestPathNodesToAnimate[i];
+            if (node.id === board.start) includesStart = true;
+            if (node.id === board.target) includesTarget = true;
+            length++;
+        }
+
+        if (!includesStart) length++;
+        if (!includesTarget) length++;
+
+        return length;
+    }
+
     var length = 0;
     var currentId = board.target;
 
@@ -81,6 +101,26 @@ function computePathLength(board) {
 }
 
 function computePathCost(board) {
+    if (board.currentAlgorithm === "bidirectional" &&
+        board.shortestPathNodesToAnimate &&
+        board.shortestPathNodesToAnimate.length) {
+        var cost = 0;
+        var includesStart = false;
+        var includesTarget = false;
+
+        for (var i = 0; i < board.shortestPathNodesToAnimate.length; i++) {
+            var node = board.shortestPathNodesToAnimate[i];
+            if (node.id === board.start) includesStart = true;
+            if (node.id === board.target) includesTarget = true;
+            cost += node.weight > 0 ? node.weight : 1;
+        }
+
+        if (!includesStart) cost += 1;
+        if (!includesTarget) cost += 1;
+
+        return cost;
+    }
+
     var cost = 0;
     var currentId = board.target;
 
