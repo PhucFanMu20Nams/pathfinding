@@ -1,0 +1,120 @@
+# ============================================
+# PATHFINDING VISUALIZER - .gitignore
+# Created: 2026-02-04
+# Purpose: Protect sensitive files and ignore build artifacts
+# ============================================
+
+# ============================================
+# SECTION 1: Environment Variables (CRITICAL SECURITY)
+# ============================================
+# File .env chứa OPENAI_API_KEY - secret production key
+# Theo OWASP A02 (Cryptographic Failures): Never commit secrets
+# Reference: .agent/rules/security-and-owasp.instructions.md L22-27
+.env
+.env.local
+.env.*.local
+.env.development
+.env.development.local
+.env.production
+.env.production.local
+.env.test
+.env.test.local
+
+# ============================================
+# SECTION 2: Dependencies
+# ============================================
+# Folder node_modules có thể lên đến 100-500MB
+# Được reinstall bằng: npm install
+# Không cần commit vì package.json đã track versions
+node_modules/
+
+# Package lock files (optional - có thể keep hoặc ignore)
+# package-lock.json
+# yarn.lock
+
+# ============================================
+# SECTION 3: Build Outputs
+# ============================================
+# bundle.js được tạo bởi Browserify từ board.js
+# Có thể regenerate bằng: npm run watch
+# Comment out nếu muốn commit bundle.js
+# public/browser/bundle.js
+
+# ============================================
+# SECTION 4: macOS System Files
+# ============================================
+# .DS_Store: Desktop Services Store - file metadata của Finder
+# Tự động tạo khi browse folder trên macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# ============================================
+# SECTION 5: Windows System Files
+# ============================================
+# Thumbs.db: Thumbnail cache cho Windows Explorer
+# ehthumbs.db: Video thumbnail cache
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ============================================
+# SECTION 6: Linux System Files
+# ============================================
+# Backup files từ editors
+*~
+
+# ============================================
+# SECTION 7: Visual Studio Code
+# ============================================
+# Folder .vscode chứa settings cá nhân (debugger, extensions, etc.)
+# Có thể share hoặc ignore tùy team preference
+.vscode/
+*.code-workspace
+
+# ============================================
+# SECTION 8: JetBrains IDEs (WebStorm, IntelliJ, PhpStorm)
+# ============================================
+# Folder .idea chứa project settings riêng của từng developer
+.idea/
+*.iml
+
+# ============================================
+# SECTION 9: Vim / Neovim
+# ============================================
+# Swap files tạo bởi Vim khi editing
+*.swp
+*.swo
+*.swn
+
+# ============================================
+# SECTION 10: Emacs
+# ============================================
+# Auto-save và lock files
+\#*\#
+.#*
+
+# ============================================
+# SECTION 11: Logs & Debug
+# ============================================
+# npm debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ============================================
+# SECTION 12: Test & Coverage
+# ============================================
+# Coverage reports từ testing frameworks
+coverage/
+.nyc_output/
+
+# ============================================
+# SECTION 13: Temporary Files
+# ============================================
+*.tmp
+*.temp
+tmp/
+temp/
