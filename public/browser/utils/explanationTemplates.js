@@ -53,6 +53,10 @@ function generateExplanation(event) {
       return "Target " + coords + " reached! Visited " + visitedCount + " nodes. Total path cost: " + pathCost + ".";
     },
 
+    no_path: function (e) {
+      return "No path found. The frontier was exhausted without reaching the target.";
+    },
+
     found_midpoint: function (e) {
       var coords = idToCoords(e.midpoint);
       return "Both searches met at " + coords + "! Combining paths.";
