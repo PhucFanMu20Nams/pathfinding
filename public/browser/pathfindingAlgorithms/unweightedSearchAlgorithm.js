@@ -56,6 +56,13 @@ function unweightedSearchAlgorithm(nodes, start, target, nodesToAnimate, boardAr
       }
     });
   }
+  if (trace) {
+    trace.push({
+      t: "no_path",
+      step: trace.length,
+      reason: "frontier_exhausted"
+    });
+  }
   return false;
 }
 
