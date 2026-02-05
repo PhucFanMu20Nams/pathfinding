@@ -43,7 +43,16 @@ function Board(height, width) {
   this.currentWeightValue = 15;
   this.explanationPanelVisible = localStorage.getItem("explanationPanelVisible") === "true";
   this.currentTrace = [];
+  this.traceCursor = 0;
   this.lastVisitedCount = 0;
+  this.lastKnownPanelValues = {
+    g: null,
+    h: null,
+    f: null,
+    frontierSize: null,
+    visitedCount: null,
+    currentNode: null
+  };
 
   var panel = document.getElementById("explanationPanel");
   if (panel && !this.explanationPanelVisible) {
@@ -115,33 +124,69 @@ Board.prototype.updateExplanationPanel = function (event) {
     return;
   }
 
+  var cached = this.lastKnownPanelValues;
+  var computedCost = null;
+  if (event.t === "found_target") {
+    var costObj = this.computePathCost();
+    computedCost = costObj ? costObj.cost : null;
+    if (event.metrics && computedCost !== null) {
+      event.metrics.pathCost = computedCost;
+    }
+  }
+
   var explanation = explanationTemplates.generateExplanation(event);
 
   document.getElementById("stepNumber").textContent = event.step;
   document.getElementById("explanationText").textContent = explanation;
 
   if (event.current) {
+    cached.currentNode = event.current;
     var coords = event.current.replace("-", ",");
     document.getElementById("currentNodeInfo").querySelector(".node-coords").textContent = "(" + coords + ")";
+  } else if (event.t === "found_target" && event.target) {
+    cached.currentNode = event.target;
+    var targetCoords = event.target.replace("-", ",");
+    document.getElementById("currentNodeInfo").querySelector(".node-coords").textContent = "(" + targetCoords + ")";
+  } else if (event.t === "relax_neighbor" && event.to) {
+    var toCoords = event.to.replace("-", ",");
+    document.getElementById("currentNodeInfo").querySelector(".node-coords").textContent = "(" + toCoords + ")";
+  } else if (event.from) {
+    var fromCoords = event.from.replace("-", ",");
+    document.getElementById("currentNodeInfo").querySelector(".node-coords").textContent = "(" + fromCoords + ")";
+  } else if (cached.currentNode) {
+    var cachedCoords = cached.currentNode.replace("-", ",");
+    document.getElementById("currentNodeInfo").querySelector(".node-coords").textContent = "(" + cachedCoords + ")";
   }
 
   if (event.values) {
-    document.getElementById("gCost").textContent = event.values.g !== undefined ? event.values.g : "—";
-    document.getElementById("hCost").textContent = event.values.h !== undefined ? event.values.h : "—";
-    document.getElementById("fCost").textContent = event.values.f !== undefined ? event.values.f : "—";
-  } else {
-    document.getElementById("gCost").textContent = "—";
-    document.getElementById("hCost").textContent = "—";
-    document.getElementById("fCost").textContent = "—";
+    if (event.values.g !== undefined) cached.g = event.values.g;
+    if (event.values.h !== undefined) cached.h = event.values.h;
+    if (event.values.f !== undefined) cached.f = event.values.f;
+  } else if (event.t === "relax_neighbor" && event.new) {
+    if (event.new.g !== undefined) cached.g = event.new.g;
+    if (event.new.f !== undefined) cached.f = event.new.f;
+  }
+  if (event.t === "found_target" && computedCost !== null) {
+    cached.g = computedCost;
+    cached.h = 0;
+    cached.f = computedCost;
   }
 
+  document.getElementById("gCost").textContent = cached.g !== null ? cached.g : "—";
+  document.getElementById("hCost").textContent = cached.h !== null ? cached.h : "—";
+  document.getElementById("fCost").textContent = cached.f !== null ? cached.f : "—";
+
   if (event.metrics) {
-    document.getElementById("frontierSize").textContent = event.metrics.frontierSize !== undefined ? event.metrics.frontierSize : "—";
-    document.getElementById("visitedCountLive").textContent = event.metrics.visitedCount !== undefined ? event.metrics.visitedCount : "—";
-  } else {
-    document.getElementById("frontierSize").textContent = "—";
-    document.getElementById("visitedCountLive").textContent = "—";
+    if (event.metrics.frontierSize !== undefined) cached.frontierSize = event.metrics.frontierSize;
+    if (event.metrics.visitedCount !== undefined) cached.visitedCount = event.metrics.visitedCount;
   }
+  if (event.t === "found_target" && cached.visitedCount !== null) {
+    var totalNodes = Object.keys(this.nodes).length;
+    cached.frontierSize = totalNodes - cached.visitedCount;
+  }
+
+  document.getElementById("frontierSize").textContent = cached.frontierSize !== null ? cached.frontierSize : "—";
+  document.getElementById("visitedCountLive").textContent = cached.visitedCount !== null ? cached.visitedCount : "—";
 };
 
 Board.prototype.createGrid = function () {
@@ -246,10 +291,9 @@ Board.prototype.changeSpecialNode = function (currentNode) {
   if (currentNode.status !== "target" && currentNode.status !== "start") {
     if (this.previouslySwitchedNode) {
       this.previouslySwitchedNode.status = this.previouslyPressedNodeStatus;
-      previousElement.className = this.previouslySwitchedNodeWeight === 15 ?
+      previousElement.className = this.previouslySwitchedNodeWeight > 0 ?
         "unvisited weight" : this.previouslyPressedNodeStatus;
-      this.previouslySwitchedNode.weight = this.previouslySwitchedNodeWeight === 15 ?
-        15 : 0;
+      this.previouslySwitchedNode.weight = this.previouslySwitchedNodeWeight;
       this.previouslySwitchedNode = null;
       this.previouslySwitchedNodeWeight = currentNode.weight;
 
@@ -283,10 +327,10 @@ Board.prototype.changeNormalNode = function (currentNode) {
     }
   } else if (this.keyDown === 87 && !unweightedAlgorithms.includes(this.currentAlgorithm)) {
     if (!relevantStatuses.includes(currentNode.status)) {
-      element.className = currentNode.weight !== 15 ?
+      element.className = currentNode.weight === 0 ?
         "unvisited weight" : "unvisited";
       currentNode.weight = element.className !== "unvisited weight" ?
-        0 : 15;
+        0 : this.currentWeightValue;
       currentNode.status = "unvisited";
     }
   }
@@ -400,6 +444,8 @@ Board.prototype.drawShortestPathTimeout = function (targetNodeId, startNodeId, t
 
   }
 
+  // Preserve computed shortest path for UI + history (especially bidirectional)
+  board.shortestPathNodesToAnimate = currentNodesToAnimate.slice(0);
 
   timeout(0);
 
@@ -417,7 +463,39 @@ Board.prototype.drawShortestPathTimeout = function (targetNodeId, startNodeId, t
         board.toggleButtons();
         var visitedCount = board.lastVisitedCount !== undefined ? board.lastVisitedCount :
           (board.nodesToAnimate ? board.nodesToAnimate.length : 0);
-        var pathLength = currentNodesToAnimate ? currentNodesToAnimate.length + 2 : 0;
+        var costObj = board.computePathCost();
+        var pathLength = costObj && costObj.pathLength ? costObj.pathLength : 0;
+        var pathCost = costObj && costObj.cost ? costObj.cost : 0;
+        var totalNodes = Object.keys(board.nodes).length;
+        var frontierSize = Math.max(totalNodes - visitedCount, 0);
+
+        // Ensure panel ends on a final event with fresh values/metrics
+        if (board.currentTrace) {
+          var lastEvent = board.currentTrace[board.currentTrace.length - 1];
+          var finalValues = { g: pathCost, h: 0, f: pathCost };
+          var finalMetrics = {
+            visitedCount: visitedCount,
+            pathCost: pathCost,
+            frontierSize: frontierSize
+          };
+
+          if (lastEvent && lastEvent.t === "found_target") {
+            lastEvent.values = finalValues;
+            lastEvent.metrics = Object.assign({}, lastEvent.metrics, finalMetrics);
+            board.updateExplanationPanel(lastEvent);
+          } else {
+            var finalEvent = {
+              t: "found_target",
+              step: board.currentTrace.length,
+              target: board.target,
+              values: finalValues,
+              metrics: finalMetrics
+            };
+            board.currentTrace.push(finalEvent);
+            board.updateExplanationPanel(finalEvent);
+          }
+        }
+
         if (visitedCount > 0 && pathLength > 0) {
           aiExplain.requestAIExplanation(board, visitedCount, pathLength);
         }
@@ -487,6 +565,34 @@ Board.prototype.createMazeOne = function (type) {
 };
 
 Board.prototype.computePathCost = function () {
+  if (this.currentAlgorithm === "bidirectional" &&
+    this.shortestPathNodesToAnimate &&
+    this.shortestPathNodesToAnimate.length) {
+    let cost = 0;
+    let pathLength = 0;
+    let includesStart = false;
+    let includesTarget = false;
+
+    for (let i = 0; i < this.shortestPathNodesToAnimate.length; i++) {
+      let node = this.shortestPathNodesToAnimate[i];
+      if (node.id === this.start) includesStart = true;
+      if (node.id === this.target) includesTarget = true;
+      cost += node.weight > 0 ? node.weight : 1;
+      pathLength++;
+    }
+
+    if (!includesStart) {
+      cost += 1;
+      pathLength++;
+    }
+    if (!includesTarget) {
+      cost += 1;
+      pathLength++;
+    }
+
+    return { cost: cost, pathLength: pathLength };
+  }
+
   let cost = 0;
   let pathLength = 0;
   let currentId = this.target;
@@ -520,7 +626,17 @@ Board.prototype.hidePathCost = function () {
 
 Board.prototype.clearPath = function (clickedButton) {
   this.currentTrace = [];
+  this.traceCursor = 0;
   this.lastVisitedCount = 0;
+  this.shortestPathNodesToAnimate = [];
+  this.lastKnownPanelValues = {
+    g: null,
+    h: null,
+    f: null,
+    frontierSize: null,
+    visitedCount: null,
+    currentNode: null
+  };
   this.updateExplanationPanel(null);
   if (clickedButton) {
     this.hidePathCost();
@@ -1088,6 +1204,7 @@ let textHeight = $("#mainText").height() + $("#algorithmDescriptor").height();
 let height = Math.floor(($(document).height() - navbarHeight - textHeight) / 28);
 let width = Math.floor($(document).width() / 25);
 let newBoard = new Board(height, width)
+window.__board = newBoard;
 newBoard.initialise();
 
 window.onkeydown = (e) => {
