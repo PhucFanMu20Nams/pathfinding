@@ -19,8 +19,9 @@ function weightedSearchAlgorithm(nodes, start, target, nodesToAnimate, boardArra
     if (trace) {
       var gValue = currentNode.distance;
       var hValue = currentNode.heuristicDistance || 0;
-      var fValue = currentNode.totalDistance !== undefined && currentNode.totalDistance !== null ?
-        currentNode.totalDistance : currentNode.distance;
+      var fValue = name === "dijkstra" ? currentNode.distance :
+        (currentNode.totalDistance !== undefined && currentNode.totalDistance !== null ?
+          currentNode.totalDistance : currentNode.distance);
       trace.push({
         t: "select_current",
         step: trace.length,
@@ -58,6 +59,13 @@ function weightedSearchAlgorithm(nodes, start, target, nodesToAnimate, boardArra
     } else if (name === "dijkstra") {
       updateNeighbors(nodes, currentNode, boardArray, null, name, start, heuristic, trace);
     }
+  }
+  if (trace) {
+    trace.push({
+      t: "no_path",
+      step: trace.length,
+      reason: "frontier_exhausted"
+    });
   }
 }
 
