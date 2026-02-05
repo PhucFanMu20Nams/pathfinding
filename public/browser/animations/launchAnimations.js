@@ -14,12 +14,15 @@ function launchAnimations(board, success, type) {
       if (index === nodes.length) {
         board.lastVisitedCount = nodes.length;
         board.nodesToAnimate = [];
+        if (board.currentTrace && board.currentTrace.length > 0 && board.updateExplanationPanel) {
+          var finalEvent = board.currentTrace[board.currentTrace.length - 1];
+          board.updateExplanationPanel(finalEvent);
+        }
         if (success) {
           if (document.getElementById(board.target).className !== "visitedTargetNodeBlue") {
             document.getElementById(board.target).className = "visitedTargetNodeBlue";
           }
           board.drawShortestPathTimeout(board.target, board.start, type);
-          board.shortestPathNodesToAnimate = [];
           board.reset();
           // Save run to history + display cost
           var visitedCount = nodes.length;
@@ -49,9 +52,10 @@ function launchAnimations(board, success, type) {
         change(nodes[index], nodes[index - 1]);
       }
       if (board.currentTrace && board.currentTrace.length > 0 && board.updateExplanationPanel) {
-        var traceIndex = Math.min(index, board.currentTrace.length - 1);
+        var traceIndex = Math.min(board.traceCursor, board.currentTrace.length - 1);
         var event = board.currentTrace[traceIndex];
         board.updateExplanationPanel(event);
+        board.traceCursor = Math.min(board.traceCursor + 1, board.currentTrace.length - 1);
       }
       timeout(index + 1);
     }, speed);
