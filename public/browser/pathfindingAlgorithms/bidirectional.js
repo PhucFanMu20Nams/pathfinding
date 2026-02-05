@@ -97,6 +97,13 @@ function bidirectional(nodes, start, target, nodesToAnimate, boardArray, name, h
     updateNeighbors(nodes, currentNode, boardArray, target, name, start, heuristic, trace, "forward");
     updateNeighborsTwo(nodes, secondCurrentNode, boardArray, start, name, target, heuristic, trace, "backward");
   }
+  if (trace) {
+    trace.push({
+      t: "no_path",
+      step: trace.length,
+      reason: "frontier_exhausted"
+    });
+  }
 }
 
 function closestNode(nodes, unvisitedNodes) {
