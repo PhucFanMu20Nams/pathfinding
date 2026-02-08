@@ -1,8 +1,52 @@
 require("dotenv").config();
 
 const express = require("express");
+const helmet = require("helmet");
+const rateLimit = require("express-rate-limit");
 const app = express();
 
+// === SECURITY HEADERS ===
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: [
+        "'self'",
+        "https://ajax.googleapis.com",
+        "https://maxcdn.bootstrapcdn.com"
+      ],
+      styleSrc: [
+        "'self'",
+        "https://maxcdn.bootstrapcdn.com",
+        "'unsafe-inline'"
+      ],
+      imgSrc: ["'self'", "data:"],
+      connectSrc: ["'self'"],
+      fontSrc: ["'self'", "https://maxcdn.bootstrapcdn.com"],
+      objectSrc: ["'none'"]
+    }
+  },
+  crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: { policy: "cross-origin" }
+}));
+
+// === RATE LIMITING ===
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  message: {
+    error: "Too many requests. Please wait before requesting another explanation.",
+    retryAfter: "15 minutes"
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res, next, options) => {
+    console.warn("[Rate Limit] IP exceeded limit:", req.ip);
+    res.status(options.statusCode).json(options.message);
+  }
+});
+
+// === BODY PARSING ===
 app.use(express.json());
 app.use("/public", express.static(__dirname + "/public"));
 
@@ -10,7 +54,7 @@ app.get("/", (req, res) => {
   res.sendFile(__dirname + "/index.html");
 });
 
-app.post("/api/explain", async (req, res) => {
+app.post("/api/explain", apiLimiter, async (req, res) => {
   const digest = req.body;
 
   if (!digest || !digest.algorithmKey || typeof digest.visitedCount !== "number") {
@@ -59,7 +103,7 @@ async function callOpenAI(apiKey, digest) {
       messages: [
         {
           role: "system",
-          content: "You are an educational assistant explaining pathfinding algorithms to beginners.\n\nSTRICT RULES:\n1. Output 4 or 5 sentences.\n2. One sentence must start with \"If\" and describe a counterfactual.\n3. Use simple English (Feynman-level). NO jargon like \"heuristic\", \"priority queue\", \"relaxation\", \"frontier\".\n4. ONLY use facts from the provided digest. Never invent numbers or steps.\n5. Describe what happened in THIS run, not how the algorithm works in general.\n6. Do NOT give advice, tips, or suggestions.\n7. Start with what the algorithm did, then describe the result."
+          content: "You are an educational assistant explaining pathfinding algorithms to beginners.\n\nSTRICT RULES:\n1. Output EXACTLY 5 sentences.\n2. One sentence must start with \"If\" and describe a counterfactual.\n3. Use simple English (Feynman-level). NO jargon like \"heuristic\", \"priority queue\", \"relaxation\", \"frontier\".\n4. ONLY use facts from the provided digest. Never invent numbers or steps.\n5. Describe what happened in THIS run, not how the algorithm works in general.\n6. Do NOT give advice, tips, or suggestions.\n7. Start with what the algorithm did, then describe the result.\n8. You MUST explicitly mention these numbers: visited count, grid coverage percent, path length, straight-line distance, detour steps (or say no detour), wall count, weight nodes on grid, and weight nodes in the final path."
         },
         {
           role: "user",
@@ -85,8 +129,9 @@ function buildPrompt(digest) {
   const algoName = formatAlgorithmName(digest.algorithmKey);
   const meta = digest.meta || {};
 
-  let prompt = "Summarize this pathfinding run in 4-5 sentences. " +
-    "Include one sentence that starts with 'If' and describes a counterfactual.\n\n";
+  let prompt = "Summarize this pathfinding run in exactly 5 sentences. " +
+    "Include one sentence that starts with 'If' and describes a counterfactual. " +
+    "You must mention visited count, grid coverage percent, path length, straight-line distance, detour steps (or say no detour), wall count, weight nodes on grid, and weight nodes in the final path.\n\n";
 
   prompt += "Algorithm: " + algoName + "\n";
   prompt += "Algorithm type: " + (meta.algorithmFamily || "unknown") + "\n";
@@ -104,22 +149,23 @@ function buildPrompt(digest) {
 
   if (typeof digest.directDistance === "number") {
     prompt += "Straight-line distance: " + digest.directDistance + " steps\n";
-    if (digest.pathLength > digest.directDistance) {
-      prompt += "Detour amount: " + (digest.pathLength - digest.directDistance) + " extra steps\n";
-    }
+  }
+
+  if (typeof digest.detourSteps === "number") {
+    prompt += "Detour steps: " + digest.detourSteps + "\n";
   }
 
   if (typeof digest.visitedPercent === "number") {
-    prompt += "Grid coverage: checked " + digest.visitedPercent + "% of all cells\n";
+    prompt += "Grid coverage: " + digest.visitedPercent + "% of cells checked\n";
   }
 
   if (digest.wallCount > 0) {
     prompt += "Walls blocking the way: " + digest.wallCount + "\n";
   }
 
-  if (digest.weightCount > 0) {
-    prompt += "Weighted (slower) nodes: " + digest.weightCount + "\n";
-    prompt += "Weights in final path: " + (digest.weightsInPath || 0) + "\n";
+  if (typeof digest.weightCount === "number") {
+    prompt += "Weight nodes on grid: " + digest.weightCount + "\n";
+    prompt += "Weight nodes in final path: " + (digest.weightsInPath || 0) + "\n";
   }
 
   if (digest.pathSample && digest.pathSample.length > 0) {
@@ -149,42 +195,26 @@ function generateFallback(digest) {
   const lines = [];
 
   const visitedPercentText = typeof digest.visitedPercent === "number"
-    ? " (" + digest.visitedPercent + "% of the grid)"
-    : "";
+    ? digest.visitedPercent
+    : 0;
+
+  const directDistance = typeof digest.directDistance === "number" ? digest.directDistance : 0;
+  const detourSteps = typeof digest.detourSteps === "number"
+    ? digest.detourSteps
+    : Math.max(0, digest.pathLength - directDistance);
 
   lines.push("The " + algoName + " explored " + digest.visitedCount +
-    " cells" + visitedPercentText + " before finding the target.");
+    " cells (" + visitedPercentText + "% of the grid) before finding the target.");
 
-  if (typeof digest.directDistance === "number" && digest.directDistance > 0) {
-    if (digest.pathLength > digest.directDistance) {
-      var detour = digest.pathLength - digest.directDistance;
-      lines.push("The final path uses " + digest.pathLength + " steps, which is " +
-        detour + " more than a straight line.");
-    } else {
-      lines.push("The final path uses " + digest.pathLength +
-        " steps, matching the straight-line distance.");
-    }
-  } else {
-    lines.push("The final path uses " + digest.pathLength + " steps.");
-  }
+  lines.push("The final path uses " + digest.pathLength + " steps, while a straight line would take " +
+    directDistance + " steps, so the detour is " + detourSteps + " steps.");
 
-  if (digest.wallCount > 0) {
-    lines.push("Walls forced detours around " + digest.wallCount + " blocked cells.");
-  } else if (digest.weightCount > 0) {
-    lines.push("The algorithm considered " + digest.weightCount +
-      " weight nodes that slow down movement.");
-  } else {
-    lines.push("All cells had equal movement cost, so distance was the only factor.");
-  }
+  lines.push("There are " + digest.wallCount + " wall(s) and " + digest.weightCount +
+    " weight node(s) on the grid.");
 
-  if (digest.wallCount > 0 && typeof digest.directDistance === "number" && digest.pathLength > digest.directDistance) {
-    lines.push("If there were no walls, the path would be " +
-      digest.directDistance + " steps.");
-  } else if (digest.weightCount > 0 && (digest.weightsInPath || 0) === 0) {
-    lines.push("If the path went through weighted cells, the total cost would be higher.");
-  } else {
-    lines.push("If the start and target were closer, the path would be shorter.");
-  }
+  lines.push("The final path goes through " + (digest.weightsInPath || 0) + " weight node(s).");
+
+  lines.push("If walls or weights were removed, the path would be shorter or cheaper.");
 
   return lines.join(" ");
 }
