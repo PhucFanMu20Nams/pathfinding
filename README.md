@@ -17,7 +17,7 @@ An interactive educational tool for visualizing pathfinding algorithms with **st
 
 ### Educational Tools
 - 📖 **Step-by-Step Explanations** — See why each node is selected
-- 🤖 **AI Explanation** — 3-sentence summary after each run
+- 🤖 **AI Explanation** — 3-5 -sentence summary after each run
 - 💡 **"Why This Path?"** — Understand path cost decisions
 - ⚖️ **Weight Slider** — Experiment with cost values (0-50)
 - 📊 **Path Cost Display** — Compare efficiency metrics
