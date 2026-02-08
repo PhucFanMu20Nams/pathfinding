@@ -59,7 +59,7 @@ async function callOpenAI(apiKey, digest) {
       messages: [
         {
           role: "system",
-          content: "You are an educational assistant explaining pathfinding algorithms to beginners.\n\nSTRICT RULES:\n1. Output EXACTLY 3 sentences. No more, no less.\n2. Use simple English (Feynman-level). NO jargon like \"heuristic\", \"priority queue\", \"relaxation\", \"frontier\".\n3. ONLY use facts from the provided digest. Never invent numbers or steps.\n4. Describe what happened in THIS run, not how the algorithm works in general.\n5. Do NOT give advice, tips, or suggestions.\n6. Start with what the algorithm did, then describe the result."
+          content: "You are an educational assistant explaining pathfinding algorithms to beginners.\n\nSTRICT RULES:\n1. Output 4 or 5 sentences.\n2. One sentence must start with \"If\" and describe a counterfactual.\n3. Use simple English (Feynman-level). NO jargon like \"heuristic\", \"priority queue\", \"relaxation\", \"frontier\".\n4. ONLY use facts from the provided digest. Never invent numbers or steps.\n5. Describe what happened in THIS run, not how the algorithm works in general.\n6. Do NOT give advice, tips, or suggestions.\n7. Start with what the algorithm did, then describe the result."
         },
         {
           role: "user",
@@ -85,7 +85,8 @@ function buildPrompt(digest) {
   const algoName = formatAlgorithmName(digest.algorithmKey);
   const meta = digest.meta || {};
 
-  let prompt = "Summarize this pathfinding run in exactly 3 sentences:\n\n";
+  let prompt = "Summarize this pathfinding run in 4-5 sentences. " +
+    "Include one sentence that starts with 'If' and describes a counterfactual.\n\n";
 
   prompt += "Algorithm: " + algoName + "\n";
   prompt += "Algorithm type: " + (meta.algorithmFamily || "unknown") + "\n";
@@ -101,12 +102,24 @@ function buildPrompt(digest) {
   prompt += "Total nodes checked: " + digest.visitedCount + "\n";
   prompt += "Final path length: " + digest.pathLength + " steps\n";
 
+  if (typeof digest.directDistance === "number") {
+    prompt += "Straight-line distance: " + digest.directDistance + " steps\n";
+    if (digest.pathLength > digest.directDistance) {
+      prompt += "Detour amount: " + (digest.pathLength - digest.directDistance) + " extra steps\n";
+    }
+  }
+
+  if (typeof digest.visitedPercent === "number") {
+    prompt += "Grid coverage: checked " + digest.visitedPercent + "% of all cells\n";
+  }
+
   if (digest.wallCount > 0) {
     prompt += "Walls blocking the way: " + digest.wallCount + "\n";
   }
 
   if (digest.weightCount > 0) {
     prompt += "Weighted (slower) nodes: " + digest.weightCount + "\n";
+    prompt += "Weights in final path: " + (digest.weightsInPath || 0) + "\n";
   }
 
   if (digest.pathSample && digest.pathSample.length > 0) {
@@ -133,16 +146,47 @@ function formatAlgorithmName(key) {
 
 function generateFallback(digest) {
   const algoName = formatAlgorithmName(digest.algorithmKey);
-  let text = "The " + algoName + " explored " + digest.visitedCount + " nodes before finding the target. ";
-  text += "The final path uses " + digest.pathLength + " steps. ";
+  const lines = [];
 
-  if (digest.weightCount > 0) {
-    text += "Weight nodes added extra cost to some paths.";
+  const visitedPercentText = typeof digest.visitedPercent === "number"
+    ? " (" + digest.visitedPercent + "% of the grid)"
+    : "";
+
+  lines.push("The " + algoName + " explored " + digest.visitedCount +
+    " cells" + visitedPercentText + " before finding the target.");
+
+  if (typeof digest.directDistance === "number" && digest.directDistance > 0) {
+    if (digest.pathLength > digest.directDistance) {
+      var detour = digest.pathLength - digest.directDistance;
+      lines.push("The final path uses " + digest.pathLength + " steps, which is " +
+        detour + " more than a straight line.");
+    } else {
+      lines.push("The final path uses " + digest.pathLength +
+        " steps, matching the straight-line distance.");
+    }
   } else {
-    text += "All nodes had equal movement cost.";
+    lines.push("The final path uses " + digest.pathLength + " steps.");
   }
 
-  return text;
+  if (digest.wallCount > 0) {
+    lines.push("Walls forced detours around " + digest.wallCount + " blocked cells.");
+  } else if (digest.weightCount > 0) {
+    lines.push("The algorithm considered " + digest.weightCount +
+      " weight nodes that slow down movement.");
+  } else {
+    lines.push("All cells had equal movement cost, so distance was the only factor.");
+  }
+
+  if (digest.wallCount > 0 && typeof digest.directDistance === "number" && digest.pathLength > digest.directDistance) {
+    lines.push("If there were no walls, the path would be " +
+      digest.directDistance + " steps.");
+  } else if (digest.weightCount > 0 && (digest.weightsInPath || 0) === 0) {
+    lines.push("If the path went through weighted cells, the total cost would be higher.");
+  } else {
+    lines.push("If the start and target were closer, the path would be shorter.");
+  }
+
+  return lines.join(" ");
 }
 
 const PORT = process.env.PORT || 1337;
