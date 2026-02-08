@@ -1,3 +1,5 @@
+var gridMetrics = require("./gridMetrics");
+
 var ALGORITHM_META = {
   dijkstra: {
     algorithmFamily: "weighted",
@@ -52,6 +54,7 @@ function idToReadable(id) {
 function buildRunDigest(board, visitedCount, pathLength) {
   var algoKey = board.currentAlgorithm || "dijkstra";
   var meta = ALGORITHM_META[algoKey] || ALGORITHM_META.dijkstra;
+  var metrics = gridMetrics.calculateGridMetrics(board);
 
   var visitedSample = [];
   var visitedNodes = board.nodesToAnimate || [];
@@ -89,20 +92,6 @@ function buildRunDigest(board, visitedCount, pathLength) {
     pathSample.push(idToReadable(board.target));
   }
 
-  var wallCount = 0;
-  var weightCount = 0;
-  var nodeIds = Object.keys(board.nodes);
-
-  for (var n = 0; n < nodeIds.length; n++) {
-    var node = board.nodes[nodeIds[n]];
-    if (node.status === "wall") {
-      wallCount++;
-    }
-    if (node.weight > 0 && node.status !== "wall") {
-      weightCount++;
-    }
-  }
-
   return {
     algorithmKey: algoKey,
     meta: meta,
@@ -110,11 +99,27 @@ function buildRunDigest(board, visitedCount, pathLength) {
     target: idToReadable(board.target),
     visitedCount: visitedCount,
     pathLength: pathLength,
-    wallCount: wallCount,
-    weightCount: weightCount,
+    wallCount: metrics.wallCount,
+    weightCount: metrics.weightCount,
     visitedSample: visitedSample,
-    pathSample: pathSample
+    pathSample: pathSample,
+    gridSize: metrics.gridSize,
+    visitedPercent: metrics.visitedPercent,
+    directDistance: metrics.directDistance,
+    efficiency: metrics.efficiency,
+    detourSteps: metrics.detourSteps,
+    weightsInPath: countWeightsInPath(board)
   };
+}
+
+function countWeightsInPath(board) {
+  var count = 0;
+  var path = board.shortestPathNodesToAnimate || [];
+  for (var i = 0; i < path.length; i++) {
+    var node = path[i];
+    if (node && node.weight > 0) count++;
+  }
+  return count;
 }
 
 function requestAIExplanation(board, visitedCount, pathLength) {
