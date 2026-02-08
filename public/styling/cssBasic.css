@@ -7585,6 +7585,7 @@ footer p {
   font-size: 14px;
   line-height: 1.6;
   margin: 0;
+  white-space: pre-line;
 }
 
 /* Cost Model Info */
