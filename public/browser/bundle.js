@@ -285,6 +285,7 @@ const serializeRun = require("./utils/runSerializer");
 const historyStorage = require("./utils/historyStorage");
 const aiExplain = require("./utils/aiExplain");
 const historyUI = require("./utils/historyUI");
+const weightImpactAnalyzer = require("./utils/weightImpactAnalyzer");
 
 function Board(height, width) {
   this.height = height;
@@ -594,11 +595,17 @@ Board.prototype.changeNormalNode = function (currentNode) {
     }
   } else if (this.keyDown === 87 && !unweightedAlgorithms.includes(this.currentAlgorithm)) {
     if (!relevantStatuses.includes(currentNode.status)) {
-      element.className = currentNode.weight === 0 ?
-        "unvisited weight" : "unvisited";
-      currentNode.weight = element.className !== "unvisited weight" ?
-        0 : this.currentWeightValue;
-      currentNode.status = "unvisited";
+      if (this.currentWeightValue === 0) {
+        element.className = "unvisited";
+        currentNode.weight = 0;
+        currentNode.status = "unvisited";
+      } else {
+        element.className = currentNode.weight === 0 ?
+          "unvisited weight" : "unvisited";
+        currentNode.weight = element.className !== "unvisited weight" ?
+          0 : this.currentWeightValue;
+        currentNode.status = "unvisited";
+      }
     }
   }
 };
@@ -766,6 +773,14 @@ Board.prototype.drawShortestPathTimeout = function (targetNodeId, startNodeId, t
         if (visitedCount > 0 && pathLength > 0) {
           aiExplain.requestAIExplanation(board, visitedCount, pathLength);
         }
+
+        var impactDisplay = document.getElementById("weightImpactDisplay");
+        var impactText = document.getElementById("weightImpactText");
+        if (impactDisplay && impactText) {
+          var impact = weightImpactAnalyzer.analyzeWeightImpact(board);
+          impactText.textContent = impact.explanation;
+          impactDisplay.classList.remove("hidden");
+        }
         return;
       }
       timeout(index + 1);
@@ -905,6 +920,10 @@ Board.prototype.clearPath = function (clickedButton) {
     currentNode: null
   };
   this.updateExplanationPanel(null);
+  var impactDisplay = document.getElementById("weightImpactDisplay");
+  if (impactDisplay) {
+    impactDisplay.classList.add("hidden");
+  }
   if (clickedButton) {
     this.hidePathCost();
     aiExplain.hideAIExplanation();
@@ -1139,7 +1158,7 @@ Board.prototype.toggleTutorialButtons = function () {
     } else if (counter === 4) {
       document.getElementById("tutorial").innerHTML = `<h3>Meet the algorithms</h3><h6>Not all algorithms are created equal.</h6><ul><li><b>Dijkstra's Algorithm</b> (weighted): the father of pathfinding algorithms; guarantees the shortest path</li><li><b>A* Search</b> (weighted): arguably the best pathfinding algorithm; uses heuristics to guarantee the shortest path much faster than Dijkstra's Algorithm</li><li><b>Greedy Best-first Search</b> (weighted): a faster, more heuristic-heavy version of A*; does not guarantee the shortest path</li><li><b>Swarm Algorithm</b> (weighted): a mixture of Dijkstra's Algorithm and A*; does not guarantee the shortest-path</li><li><b>Convergent Swarm Algorithm</b> (weighted): the faster, more heuristic-heavy version of Swarm; does not guarantee the shortest path</li><li><b>Bidirectional Swarm Algorithm</b> (weighted): Swarm from both sides; does not guarantee the shortest path</li><li><b>Breath-first Search</b> (unweighted): a great algorithm; guarantees the shortest path</li><li><b>Depth-first Search</b> (unweighted): a very bad algorithm for pathfinding; does not guarantee the shortest path</li></ul><div id="tutorialCounter">${counter}/8</div><button id="nextButton" class="btn btn-default navbar-btn" type="button">Next</button><button id="previousButton" class="btn btn-default navbar-btn" type="button">Previous</button><button id="skipButton" class="btn btn-default navbar-btn" type="button">Skip Tutorial</button>`
     } else if (counter === 5) {
-      document.getElementById("tutorial").innerHTML = `<h3>Adding walls and weights</h3><h6>Click on the grid to add a wall. Click on the grid while pressing W to add a weight. Generate mazes and patterns from the "Mazes & Patterns" drop-down menu.</h6><p>Walls are impenetrable, meaning that a path cannot cross through them. Weights, however, are not impassable. They are simply more "costly" to move through. In this application, moving through a weight node has a "cost" of 15.</p><img id="secondTutorialImage" src="public/styling/walls.gif"><div id="tutorialCounter">${counter}/8</div><button id="nextButton" class="btn btn-default navbar-btn" type="button">Next</button><button id="previousButton" class="btn btn-default navbar-btn" type="button">Previous</button><button id="skipButton" class="btn btn-default navbar-btn" type="button">Skip Tutorial</button>`
+      document.getElementById("tutorial").innerHTML = `<h3>Adding walls and weights</h3><h6>Click on the grid to add a wall. Click on the grid while pressing W to add a weight. Generate mazes and patterns from the "Mazes & Patterns" drop-down menu.</h6><p>Walls are impenetrable, meaning that a path cannot cross through them. Weights are not impassable, they just cost more. Each step has a base cost of 1. Turning adds extra cost (90-degree turn +1, 180-degree turn +2). Weights add the slider value (0-50). Set weight to 0 to make a normal node.</p><img id="secondTutorialImage" src="public/styling/walls.gif"><div id="tutorialCounter">${counter}/8</div><button id="nextButton" class="btn btn-default navbar-btn" type="button">Next</button><button id="previousButton" class="btn btn-default navbar-btn" type="button">Previous</button><button id="skipButton" class="btn btn-default navbar-btn" type="button">Skip Tutorial</button>`
     } else if (counter === 6) {
       document.getElementById("tutorial").innerHTML = `<h3>Dragging nodes</h3><h6>Click and drag the start and target nodes to move them.</h6><p>Note that you can drag nodes even after an algorithm has finished running. This will allow you to instantly see different paths.</p><img src="public/styling/dragging.gif"><div id="tutorialCounter">${counter}/8</div><button id="nextButton" class="btn btn-default navbar-btn" type="button">Next</button><button id="previousButton" class="btn btn-default navbar-btn" type="button">Previous</button><button id="skipButton" class="btn btn-default navbar-btn" type="button">Skip Tutorial</button>`
     } else if (counter === 7) {
@@ -1324,6 +1343,10 @@ Board.prototype.toggleButtons = function () {
     document.getElementById("startButtonClearBoard").onclick = () => {
       this.currentTrace = [];
       this.updateExplanationPanel(null);
+      var impactDisplay = document.getElementById("weightImpactDisplay");
+      if (impactDisplay) {
+        impactDisplay.classList.add("hidden");
+      }
       let navbarHeight = document.getElementById("navbarDiv").clientHeight;
       let textHeight = document.getElementById("mainText").clientHeight + document.getElementById("algorithmDescriptor").clientHeight;
       let height = Math.floor((document.documentElement.clientHeight - navbarHeight - textHeight) / 28);
@@ -1482,7 +1505,7 @@ window.onkeyup = (e) => {
   newBoard.keyDown = false;
 }
 
-},{"./animations/launchAnimations":1,"./animations/launchInstantAnimations":2,"./animations/mazeGenerationAnimations":3,"./getDistance":5,"./mazeAlgorithms/otherMaze":6,"./mazeAlgorithms/otherOtherMaze":7,"./mazeAlgorithms/recursiveDivisionMaze":8,"./mazeAlgorithms/simpleDemonstration":9,"./mazeAlgorithms/stairDemonstration":10,"./mazeAlgorithms/weightsDemonstration":11,"./node":12,"./pathfindingAlgorithms/astar":13,"./pathfindingAlgorithms/bidirectional":14,"./pathfindingAlgorithms/unweightedSearchAlgorithm":15,"./pathfindingAlgorithms/weightedSearchAlgorithm":16,"./utils/aiExplain":17,"./utils/explanationTemplates":18,"./utils/historyStorage":19,"./utils/historyUI":20,"./utils/runSerializer":21}],5:[function(require,module,exports){
+},{"./animations/launchAnimations":1,"./animations/launchInstantAnimations":2,"./animations/mazeGenerationAnimations":3,"./getDistance":5,"./mazeAlgorithms/otherMaze":6,"./mazeAlgorithms/otherOtherMaze":7,"./mazeAlgorithms/recursiveDivisionMaze":8,"./mazeAlgorithms/simpleDemonstration":9,"./mazeAlgorithms/stairDemonstration":10,"./mazeAlgorithms/weightsDemonstration":11,"./node":12,"./pathfindingAlgorithms/astar":13,"./pathfindingAlgorithms/bidirectional":14,"./pathfindingAlgorithms/unweightedSearchAlgorithm":15,"./pathfindingAlgorithms/weightedSearchAlgorithm":16,"./utils/aiExplain":17,"./utils/explanationTemplates":18,"./utils/historyStorage":19,"./utils/historyUI":20,"./utils/runSerializer":21,"./utils/weightImpactAnalyzer":22}],5:[function(require,module,exports){
 function getDistance(nodeOne, nodeTwo) {
   let currentCoordinates = nodeOne.id.split("-");
   let targetCoordinates = nodeTwo.id.split("-");
@@ -4246,5 +4269,81 @@ function computePathCost(board) {
 }
 
 module.exports = serializeRun;
+
+},{}],22:[function(require,module,exports){
+/**
+ * Analyze weight impact on path decisions
+ *
+ * Input:
+ *   - board: Board instance with completed algorithm
+ *
+ * Output:
+ *   - { weightNodesInPath, totalWeightCost, baseCost, turnPenaltyCost, explanation }
+ */
+function analyzeWeightImpact(board) {
+  var result = {
+    weightNodesInPath: [],
+    totalWeightCost: 0,
+    baseCost: 0,
+    turnPenaltyCost: 0,
+    explanation: ""
+  };
+
+  var path = reconstructPath(board);
+  if (!path.length) {
+    result.explanation = "No path found, so there is no cost to explain.";
+    return result;
+  }
+
+  for (var i = 0; i < path.length; i++) {
+    var nodeId = path[i];
+    var node = board.nodes[nodeId];
+    if (node && node.weight > 0) {
+      result.weightNodesInPath.push(nodeId);
+      result.totalWeightCost += node.weight;
+    }
+    result.baseCost += 1;
+  }
+
+  if (result.weightNodesInPath.length === 0) {
+    result.explanation = "The path goes only through normal nodes. " +
+      "Total cost is " + result.baseCost + " from base movement.";
+  } else {
+    result.explanation = "The path goes through " +
+      result.weightNodesInPath.length + " weight node(s), adding " +
+      result.totalWeightCost + " extra cost. " +
+      "The algorithm chose this because going around would cost more.";
+  }
+
+  return result;
+}
+
+function reconstructPath(board) {
+  if (board.shortestPathNodesToAnimate && board.shortestPathNodesToAnimate.length) {
+    var pathFromNodes = board.shortestPathNodesToAnimate.map(function (node) {
+      return node.id;
+    });
+    if (board.start && pathFromNodes[0] !== board.start) {
+      pathFromNodes.unshift(board.start);
+    }
+    if (board.target && pathFromNodes[pathFromNodes.length - 1] !== board.target) {
+      pathFromNodes.push(board.target);
+    }
+    return pathFromNodes;
+  }
+
+  var path = [];
+  var currentId = board.target;
+  while (currentId && currentId !== board.start) {
+    path.unshift(currentId);
+    currentId = board.nodes[currentId].previousNode;
+  }
+  if (currentId === board.start) {
+    path.unshift(board.start);
+  }
+  return path;
+}
+
+module.exports = { analyzeWeightImpact: analyzeWeightImpact };
 
 },{}]},{},[4]);
