@@ -130,7 +130,7 @@ function launchAnimations(board, success, type) {
 
 module.exports = launchAnimations;
 
-},{"../pathfindingAlgorithms/unweightedSearchAlgorithm":15,"../pathfindingAlgorithms/weightedSearchAlgorithm":16,"../utils/historyStorage":19,"../utils/runSerializer":21}],2:[function(require,module,exports){
+},{"../pathfindingAlgorithms/unweightedSearchAlgorithm":15,"../pathfindingAlgorithms/weightedSearchAlgorithm":16,"../utils/historyStorage":20,"../utils/runSerializer":22}],2:[function(require,module,exports){
 const weightedSearchAlgorithm = require("../pathfindingAlgorithms/weightedSearchAlgorithm");
 const unweightedSearchAlgorithm = require("../pathfindingAlgorithms/unweightedSearchAlgorithm");
 
@@ -1505,7 +1505,7 @@ window.onkeyup = (e) => {
   newBoard.keyDown = false;
 }
 
-},{"./animations/launchAnimations":1,"./animations/launchInstantAnimations":2,"./animations/mazeGenerationAnimations":3,"./getDistance":5,"./mazeAlgorithms/otherMaze":6,"./mazeAlgorithms/otherOtherMaze":7,"./mazeAlgorithms/recursiveDivisionMaze":8,"./mazeAlgorithms/simpleDemonstration":9,"./mazeAlgorithms/stairDemonstration":10,"./mazeAlgorithms/weightsDemonstration":11,"./node":12,"./pathfindingAlgorithms/astar":13,"./pathfindingAlgorithms/bidirectional":14,"./pathfindingAlgorithms/unweightedSearchAlgorithm":15,"./pathfindingAlgorithms/weightedSearchAlgorithm":16,"./utils/aiExplain":17,"./utils/explanationTemplates":18,"./utils/historyStorage":19,"./utils/historyUI":20,"./utils/runSerializer":21,"./utils/weightImpactAnalyzer":22}],5:[function(require,module,exports){
+},{"./animations/launchAnimations":1,"./animations/launchInstantAnimations":2,"./animations/mazeGenerationAnimations":3,"./getDistance":5,"./mazeAlgorithms/otherMaze":6,"./mazeAlgorithms/otherOtherMaze":7,"./mazeAlgorithms/recursiveDivisionMaze":8,"./mazeAlgorithms/simpleDemonstration":9,"./mazeAlgorithms/stairDemonstration":10,"./mazeAlgorithms/weightsDemonstration":11,"./node":12,"./pathfindingAlgorithms/astar":13,"./pathfindingAlgorithms/bidirectional":14,"./pathfindingAlgorithms/unweightedSearchAlgorithm":15,"./pathfindingAlgorithms/weightedSearchAlgorithm":16,"./utils/aiExplain":17,"./utils/explanationTemplates":18,"./utils/historyStorage":20,"./utils/historyUI":21,"./utils/runSerializer":22,"./utils/weightImpactAnalyzer":23}],5:[function(require,module,exports){
 function getDistance(nodeOne, nodeTwo) {
   let currentCoordinates = nodeOne.id.split("-");
   let targetCoordinates = nodeTwo.id.split("-");
@@ -3542,6 +3542,8 @@ function weightedManhattanDistance(nodeOne, nodeTwo, nodes) {
 module.exports = weightedSearchAlgorithm;
 
 },{"./astar":13}],17:[function(require,module,exports){
+var gridMetrics = require("./gridMetrics");
+
 var ALGORITHM_META = {
   dijkstra: {
     algorithmFamily: "weighted",
@@ -3596,6 +3598,7 @@ function idToReadable(id) {
 function buildRunDigest(board, visitedCount, pathLength) {
   var algoKey = board.currentAlgorithm || "dijkstra";
   var meta = ALGORITHM_META[algoKey] || ALGORITHM_META.dijkstra;
+  var metrics = gridMetrics.calculateGridMetrics(board);
 
   var visitedSample = [];
   var visitedNodes = board.nodesToAnimate || [];
@@ -3633,20 +3636,6 @@ function buildRunDigest(board, visitedCount, pathLength) {
     pathSample.push(idToReadable(board.target));
   }
 
-  var wallCount = 0;
-  var weightCount = 0;
-  var nodeIds = Object.keys(board.nodes);
-
-  for (var n = 0; n < nodeIds.length; n++) {
-    var node = board.nodes[nodeIds[n]];
-    if (node.status === "wall") {
-      wallCount++;
-    }
-    if (node.weight > 0 && node.status !== "wall") {
-      weightCount++;
-    }
-  }
-
   return {
     algorithmKey: algoKey,
     meta: meta,
@@ -3654,11 +3643,27 @@ function buildRunDigest(board, visitedCount, pathLength) {
     target: idToReadable(board.target),
     visitedCount: visitedCount,
     pathLength: pathLength,
-    wallCount: wallCount,
-    weightCount: weightCount,
+    wallCount: metrics.wallCount,
+    weightCount: metrics.weightCount,
     visitedSample: visitedSample,
-    pathSample: pathSample
+    pathSample: pathSample,
+    gridSize: metrics.gridSize,
+    visitedPercent: metrics.visitedPercent,
+    directDistance: metrics.directDistance,
+    efficiency: metrics.efficiency,
+    detourSteps: metrics.detourSteps,
+    weightsInPath: countWeightsInPath(board)
   };
+}
+
+function countWeightsInPath(board) {
+  var count = 0;
+  var path = board.shortestPathNodesToAnimate || [];
+  for (var i = 0; i < path.length; i++) {
+    var node = path[i];
+    if (node && node.weight > 0) count++;
+  }
+  return count;
 }
 
 function requestAIExplanation(board, visitedCount, pathLength) {
@@ -3717,7 +3722,7 @@ module.exports = {
   buildRunDigest: buildRunDigest
 };
 
-},{}],18:[function(require,module,exports){
+},{"./gridMetrics":19}],18:[function(require,module,exports){
 function generateExplanation(event) {
   var templates = {
     select_current: function (e) {
@@ -3795,6 +3800,113 @@ function idToCoords(id) {
 module.exports = { generateExplanation: generateExplanation };
 
 },{}],19:[function(require,module,exports){
+/**
+ * Calculate grid metrics for Feynman explanations
+ *
+ * @param {Object} board - Board instance
+ * @returns {Object} metrics
+ */
+function calculateGridMetrics(board) {
+  var nodes = board && board.nodes ? board.nodes : {};
+  var nodeIds = Object.keys(nodes);
+  var gridSize = nodeIds.length;
+
+  var wallCount = 0;
+  var weightCount = 0;
+  var totalWeightValue = 0;
+
+  for (var i = 0; i < nodeIds.length; i++) {
+    var node = nodes[nodeIds[i]];
+    if (!node) continue;
+    if (node.status === "wall") {
+      wallCount++;
+    }
+    if (node.weight > 0) {
+      weightCount++;
+      totalWeightValue += node.weight;
+    }
+  }
+
+  var startCoords = parseCoords(board && board.start);
+  var targetCoords = parseCoords(board && board.target);
+  var directDistance = Math.abs(startCoords[0] - targetCoords[0]) +
+    Math.abs(startCoords[1] - targetCoords[1]);
+
+  var pathLength = computePathLengthFromBoard(board);
+  var detourSteps = pathLength > 0 ? Math.max(0, pathLength - directDistance) : 0;
+  var efficiency = pathLength > 0 && directDistance > 0 ? directDistance / pathLength : 1;
+
+  var visitedCount = 0;
+  if (board) {
+    if (typeof board.lastVisitedCount === "number" && board.lastVisitedCount > 0) {
+      visitedCount = board.lastVisitedCount;
+    } else if (board.nodesToAnimate && board.nodesToAnimate.length) {
+      visitedCount = board.nodesToAnimate.length;
+    }
+  }
+
+  var visitedPercent = gridSize > 0 ? Math.round((visitedCount / gridSize) * 100) : 0;
+  var wallDensity = gridSize > 0 ? wallCount / gridSize : 0;
+  var wallDensityLevel = wallDensity < 0.1 ? "low" :
+    wallDensity < 0.25 ? "medium" : "high";
+
+  return {
+    gridSize: gridSize,
+    wallCount: wallCount,
+    weightCount: weightCount,
+    totalWeightValue: totalWeightValue,
+    directDistance: directDistance,
+    pathLength: pathLength,
+    efficiency: efficiency,
+    detourSteps: detourSteps,
+    visitedCount: visitedCount,
+    visitedPercent: visitedPercent,
+    wallDensityLevel: wallDensityLevel
+  };
+}
+
+function parseCoords(id) {
+  if (!id || typeof id !== "string") return [0, 0];
+  var parts = id.split("-");
+  var row = parseInt(parts[0], 10);
+  var col = parseInt(parts[1], 10);
+  return [isNaN(row) ? 0 : row, isNaN(col) ? 0 : col];
+}
+
+function computePathLengthFromBoard(board) {
+  if (!board) return 0;
+
+  if (board.shortestPathNodesToAnimate && board.shortestPathNodesToAnimate.length) {
+    var pathLength = board.shortestPathNodesToAnimate.length;
+    var includesStart = false;
+    var includesTarget = false;
+
+    for (var i = 0; i < board.shortestPathNodesToAnimate.length; i++) {
+      var node = board.shortestPathNodesToAnimate[i];
+      if (!node) continue;
+      if (node.id === board.start) includesStart = true;
+      if (node.id === board.target) includesTarget = true;
+    }
+
+    if (!includesStart) pathLength++;
+    if (!includesTarget) pathLength++;
+
+    return pathLength;
+  }
+
+  if (typeof board.computePathCost === "function") {
+    var metrics = board.computePathCost();
+    if (metrics && typeof metrics.pathLength === "number") {
+      return metrics.pathLength;
+    }
+  }
+
+  return 0;
+}
+
+module.exports = { calculateGridMetrics: calculateGridMetrics };
+
+},{}],20:[function(require,module,exports){
 /**
  * History Storage Module
  * Manages run history in localStorage with 5-run limit
@@ -3884,7 +3996,7 @@ module.exports = {
     MAX_RUNS: MAX_RUNS
 };
 
-},{}],20:[function(require,module,exports){
+},{}],21:[function(require,module,exports){
 var historyStorage = require("./historyStorage");
 
 function formatTimestamp(ts) {
@@ -4128,7 +4240,7 @@ module.exports = {
   loadRun: loadRun
 };
 
-},{"./historyStorage":19}],21:[function(require,module,exports){
+},{"./historyStorage":20}],22:[function(require,module,exports){
 /**
  * Run Serializer Module
  * Converts board state to a portable JSON-serializable object
@@ -4270,7 +4382,9 @@ function computePathCost(board) {
 
 module.exports = serializeRun;
 
-},{}],22:[function(require,module,exports){
+},{}],23:[function(require,module,exports){
+const gridMetrics = require("./gridMetrics");
+
 /**
  * Analyze weight impact on path decisions
  *
@@ -4278,14 +4392,16 @@ module.exports = serializeRun;
  *   - board: Board instance with completed algorithm
  *
  * Output:
- *   - { weightNodesInPath, totalWeightCost, baseCost, turnPenaltyCost, explanation }
+ *   - { weightNodesInPath, totalWeightCost, baseCost, turnPenaltyCost, metrics, explanation }
  */
 function analyzeWeightImpact(board) {
+  var metrics = gridMetrics.calculateGridMetrics(board);
   var result = {
     weightNodesInPath: [],
     totalWeightCost: 0,
     baseCost: 0,
     turnPenaltyCost: 0,
+    metrics: metrics,
     explanation: ""
   };
 
@@ -4305,17 +4421,84 @@ function analyzeWeightImpact(board) {
     result.baseCost += 1;
   }
 
-  if (result.weightNodesInPath.length === 0) {
-    result.explanation = "The path goes only through normal nodes. " +
-      "Total cost is " + result.baseCost + " from base movement.";
-  } else {
-    result.explanation = "The path goes through " +
-      result.weightNodesInPath.length + " weight node(s), adding " +
-      result.totalWeightCost + " extra cost. " +
-      "The algorithm chose this because going around would cost more.";
-  }
+  result.explanation = generateDetailedExplanation(
+    result.weightNodesInPath,
+    result.totalWeightCost,
+    result.baseCost,
+    metrics
+  );
 
   return result;
+}
+
+function generateDetailedExplanation(weightNodes, weightCost, baseCost, metrics) {
+  var lines = [];
+  var pathLength = metrics.pathLength || baseCost;
+  var directDistance = metrics.directDistance || 0;
+  var detourSteps = metrics.detourSteps || 0;
+
+  if (directDistance > 0 && pathLength > 0) {
+    if (directDistance === pathLength) {
+      lines.push("The path takes " + pathLength + " steps, which is the straight-line distance. " +
+        "This is the shortest possible route.");
+    } else {
+      lines.push("The path takes " + pathLength + " steps; a straight line would take " +
+        directDistance + " steps.");
+    }
+  } else {
+    lines.push("The path takes " + pathLength + " steps.");
+  }
+
+  if (detourSteps > 0) {
+    if (metrics.wallCount > 0) {
+      lines.push("The extra " + detourSteps + " steps are detours around " +
+        metrics.wallCount + " wall(s) blocking the direct path.");
+    } else if (weightNodes.length > 0) {
+      lines.push("The path is longer to balance distance and weight cost.");
+    } else {
+      lines.push("The path is longer than the straight-line distance due to the search order.");
+    }
+  } else {
+    lines.push("There are no detours beyond the straight-line distance.");
+  }
+
+  if (weightNodes.length === 0 && metrics.weightCount > 0) {
+    lines.push("The path avoids all " + metrics.weightCount + " weight node(s) on the grid.");
+  } else if (weightNodes.length > 0) {
+    lines.push("The path crosses " + weightNodes.length + " weight node(s), adding " +
+      weightCost + " extra cost.");
+  } else {
+    lines.push("There are no weight nodes, so cost is just steps.");
+  }
+
+  if (metrics.wallCount > 0 && detourSteps > 0) {
+    lines.push("If there were no walls, the path would be " + detourSteps +
+      " steps shorter.");
+  } else if (weightNodes.length === 0 && metrics.weightCount > 0) {
+    var avgWeight = metrics.weightCount > 0 ? Math.round(metrics.totalWeightValue / metrics.weightCount) : 0;
+    lines.push("If the path went through weights, it would cost about " +
+      (metrics.weightCount * avgWeight) + " more even if shorter.");
+  } else if (weightNodes.length > 0) {
+    lines.push("If the path avoided those weights, it would add about " +
+      estimateDetourCost(weightNodes) + " extra steps.");
+  } else {
+    lines.push("If the start and target were closer, the path would be shorter.");
+  }
+
+  var effPercent = Math.round((metrics.efficiency || 1) * 100);
+  if (effPercent >= 95) {
+    lines.push("Path efficiency: " + effPercent + "% — nearly optimal.");
+  } else if (effPercent >= 70) {
+    lines.push("Path efficiency: " + effPercent + "% — good route given obstacles.");
+  } else {
+    lines.push("Path efficiency: " + effPercent + "% — significant detours were required.");
+  }
+
+  return lines.join("\n");
+}
+
+function estimateDetourCost(weightNodes) {
+  return weightNodes.length * 3;
 }
 
 function reconstructPath(board) {
@@ -4346,4 +4529,4 @@ function reconstructPath(board) {
 
 module.exports = { analyzeWeightImpact: analyzeWeightImpact };
 
-},{}]},{},[4]);
+},{"./gridMetrics":19}]},{},[4]);
