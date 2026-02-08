@@ -71,7 +71,7 @@
           </li>
           <li class="navbar-weight-control">
             <span class="weight-label">Weight:</span>
-            <input type="range" id="weightSlider" min="1" max="50" value="15">
+          <input type="range" id="weightSlider" min="0" max="50" value="15">
             <span id="weightValue">15</span>
           </li>
         </ul>
@@ -120,6 +120,13 @@
       <strong>Length:</strong> <span id="pathLength">0</span> nodes |
       <strong>Visited:</strong> <span id="visitedCount">0</span> nodes
     </p>
+    <div id="weightImpactDisplay" class="hidden">
+      <div class="weight-impact-header">
+        <span class="icon">💡</span>
+        <strong>Why This Path?</strong>
+      </div>
+      <p id="weightImpactText"></p>
+    </div>
     <table id='board' />
     <!-- AI Explanation Section -->
     <div id="ai-explanation-container" class="hidden">
@@ -172,6 +179,17 @@
             <span class="metric-label">Visited Count:</span>
             <span id="visitedCountLive">—</span>
           </div>
+        </div>
+      </div>
+      <div class="section">
+        <h5>Cost Model</h5>
+        <div class="cost-model-info">
+          <p><strong>Edge Cost</strong> = Base (1) + Turn Penalty + Weight</p>
+          <ul class="cost-components">
+            <li><span class="component-label">Straight:</span> +0</li>
+            <li><span class="component-label">90° turn:</span> +1</li>
+            <li><span class="component-label">180° turn:</span> +2</li>
+          </ul>
         </div>
       </div>
     </div>
