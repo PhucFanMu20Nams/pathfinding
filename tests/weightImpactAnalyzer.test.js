@@ -26,6 +26,8 @@ function testNoWeights() {
   assert.strictEqual(result.weightNodesInPath.length, 0, "No weights expected");
   assert.strictEqual(result.totalWeightCost, 0, "Total weight cost should be 0");
   assert.strictEqual(result.baseCost, 3, "Base cost should include start + target");
+  assert.ok(result.metrics, "Metrics should be included");
+  assert.ok(result.explanation.split("\n").length >= 4, "Explanation should be multi-line");
 }
 
 function testWeightsInPath() {
@@ -40,6 +42,7 @@ function testWeightsInPath() {
   assert.strictEqual(result.weightNodesInPath.length, 1, "One weight node expected");
   assert.strictEqual(result.totalWeightCost, 5, "Weight cost should equal node weight");
   assert.strictEqual(result.baseCost, 3, "Base cost should include start + target");
+  assert.ok(result.explanation.split("\n").length >= 4, "Explanation should be multi-line");
 }
 
 function testUsesShortestPathNodesToAnimate() {
@@ -53,6 +56,7 @@ function testUsesShortestPathNodesToAnimate() {
 
   assert.strictEqual(result.baseCost, 3, "Base cost should include start + target");
   assert.strictEqual(result.totalWeightCost, 7, "Weight cost should use shortestPathNodesToAnimate");
+  assert.ok(result.explanation.split("\n").length >= 4, "Explanation should be multi-line");
 }
 
 function run() {
