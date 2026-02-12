@@ -19,6 +19,9 @@ const historyStorage = require("./utils/historyStorage");
 const aiExplain = require("./utils/aiExplain");
 const historyUI = require("./utils/historyUI");
 const weightImpactAnalyzer = require("./utils/weightImpactAnalyzer");
+const algorithmDescriptions = require("./utils/algorithmDescriptions");
+const algorithmModal = require("./utils/algorithmModal");
+const AnimationController = require("./animations/animationController");
 
 function Board(height, width) {
   this.height = height;
@@ -54,6 +57,7 @@ function Board(height, width) {
     visitedCount: null,
     currentNode: null
   };
+  this.animationController = new AnimationController();
 
   var panel = document.getElementById("explanationPanel");
   if (panel && !this.explanationPanelVisible) {
@@ -135,7 +139,34 @@ Board.prototype.updateExplanationPanel = function (event) {
     }
   }
 
-  var explanation = explanationTemplates.generateExplanation(event);
+  var algoKey = algorithmDescriptions.getAlgorithmKey(this.currentAlgorithm, this.currentHeuristic);
+  var isSwarm = algoKey === "swarm" || algoKey === "convergentSwarm";
+  var relaxNodeScore = null;
+  if (isSwarm && event && event.t === "relax_neighbor" && event.to && this.nodes[event.to]) {
+    relaxNodeScore = this.nodes[event.to].gScore;
+  }
+  var explanationEvent = event;
+  if (isSwarm && event && event.t === "relax_neighbor" && relaxNodeScore !== null && event.new) {
+    explanationEvent = Object.assign({}, event, {
+      new: Object.assign({}, event.new, { g: relaxNodeScore, f: relaxNodeScore })
+    });
+  }
+  var explanation = explanationTemplates.generateExplanation(explanationEvent, algoKey);
+
+  var gLabel = document.getElementById("gLabel");
+  var hLabel = document.getElementById("hLabel");
+  var fLabel = document.getElementById("fLabel");
+  if (gLabel && hLabel && fLabel) {
+    if (isSwarm) {
+      gLabel.textContent = "Score:";
+      hLabel.textContent = "Heuristic:";
+      fLabel.textContent = "Score:";
+    } else {
+      gLabel.textContent = "g:";
+      hLabel.textContent = "h:";
+      fLabel.textContent = "f:";
+    }
+  }
 
   document.getElementById("stepNumber").textContent = event.step;
   document.getElementById("explanationText").textContent = explanation;
@@ -164,8 +195,15 @@ Board.prototype.updateExplanationPanel = function (event) {
     if (event.values.h !== undefined) cached.h = event.values.h;
     if (event.values.f !== undefined) cached.f = event.values.f;
   } else if (event.t === "relax_neighbor" && event.new) {
-    if (event.new.g !== undefined) cached.g = event.new.g;
-    if (event.new.f !== undefined) cached.f = event.new.f;
+    if (isSwarm) {
+      if (relaxNodeScore !== null && relaxNodeScore !== undefined) {
+        cached.g = relaxNodeScore;
+        cached.f = relaxNodeScore;
+      }
+    } else {
+      if (event.new.g !== undefined) cached.g = event.new.g;
+      if (event.new.f !== undefined) cached.f = event.new.f;
+    }
   }
   if (event.t === "found_target" && computedCost !== null) {
     cached.g = computedCost;
@@ -173,9 +211,25 @@ Board.prototype.updateExplanationPanel = function (event) {
     cached.f = computedCost;
   }
 
-  document.getElementById("gCost").textContent = cached.g !== null ? cached.g : "—";
-  document.getElementById("hCost").textContent = cached.h !== null ? cached.h : "—";
-  document.getElementById("fCost").textContent = cached.f !== null ? cached.f : "—";
+  if (isSwarm) {
+    var currentId = event.current || event.from || event.target || cached.currentNode;
+    var heuristic = null;
+    if (currentId && this.target) {
+      var currentParts = currentId.split("-").map(Number);
+      var targetParts = this.target.split("-").map(Number);
+      if (currentParts.length === 2 && targetParts.length === 2) {
+        heuristic = Math.abs(currentParts[0] - targetParts[0]) + Math.abs(currentParts[1] - targetParts[1]);
+      }
+    }
+    var useRelaxScore = event && event.t === "relax_neighbor" && relaxNodeScore !== null && relaxNodeScore !== undefined;
+    document.getElementById("gCost").textContent = useRelaxScore ? relaxNodeScore : (cached.g !== null ? cached.g : "—");
+    document.getElementById("hCost").textContent = heuristic !== null ? heuristic : "—";
+    document.getElementById("fCost").textContent = useRelaxScore ? relaxNodeScore : (cached.g !== null ? cached.g : "—");
+  } else {
+    document.getElementById("gCost").textContent = cached.g !== null ? cached.g : "—";
+    document.getElementById("hCost").textContent = cached.h !== null ? cached.h : "—";
+    document.getElementById("fCost").textContent = cached.f !== null ? cached.f : "—";
+  }
 
   if (event.metrics) {
     if (event.metrics.frontierSize !== undefined) cached.frontierSize = event.metrics.frontierSize;
@@ -454,71 +508,88 @@ Board.prototype.drawShortestPathTimeout = function (targetNodeId, startNodeId, t
   // Preserve computed shortest path for UI + history (especially bidirectional)
   board.shortestPathNodesToAnimate = currentNodesToAnimate.slice(0);
 
-  timeout(0);
+  var controller = board.animationController;
+  var totalPathFrames = currentNodesToAnimate.length;
+  var controls = document.getElementById("animationControls");
+  var progressEl = document.getElementById("animationProgress");
 
-  function timeout(index) {
-    if (!currentNodesToAnimate.length) currentNodesToAnimate.push(board.nodes[board.start]);
-    setTimeout(function () {
-      if (index === 0) {
-        shortestPathChange(currentNodesToAnimate[index]);
-      } else if (index < currentNodesToAnimate.length) {
-        shortestPathChange(currentNodesToAnimate[index], currentNodesToAnimate[index - 1]);
-      } else if (index === currentNodesToAnimate.length) {
-        shortestPathChange(board.nodes[board.target], currentNodesToAnimate[index - 1], "isActualTarget");
-      }
-      if (index > currentNodesToAnimate.length) {
-        board.toggleButtons();
-        var visitedCount = board.lastVisitedCount !== undefined ? board.lastVisitedCount :
-          (board.nodesToAnimate ? board.nodesToAnimate.length : 0);
-        var costObj = board.computePathCost();
-        var pathLength = costObj && costObj.pathLength ? costObj.pathLength : 0;
-        var pathCost = costObj && costObj.cost ? costObj.cost : 0;
-        var totalNodes = Object.keys(board.nodes).length;
-        var frontierSize = Math.max(totalNodes - visitedCount, 0);
-
-        // Ensure panel ends on a final event with fresh values/metrics
-        if (board.currentTrace) {
-          var lastEvent = board.currentTrace[board.currentTrace.length - 1];
-          var finalValues = { g: pathCost, h: 0, f: pathCost };
-          var finalMetrics = {
-            visitedCount: visitedCount,
-            pathCost: pathCost,
-            frontierSize: frontierSize
-          };
-
-          if (lastEvent && lastEvent.t === "found_target") {
-            lastEvent.values = finalValues;
-            lastEvent.metrics = Object.assign({}, lastEvent.metrics, finalMetrics);
-            board.updateExplanationPanel(lastEvent);
-          } else {
-            var finalEvent = {
-              t: "found_target",
-              step: board.currentTrace.length,
-              target: board.target,
-              values: finalValues,
-              metrics: finalMetrics
-            };
-            board.currentTrace.push(finalEvent);
-            board.updateExplanationPanel(finalEvent);
-          }
-        }
-
-        if (visitedCount > 0 && pathLength > 0) {
-          aiExplain.requestAIExplanation(board, visitedCount, pathLength);
-        }
-
-        var impactDisplay = document.getElementById("weightImpactDisplay");
-        var impactText = document.getElementById("weightImpactText");
-        if (impactDisplay && impactText) {
-          var impact = weightImpactAnalyzer.analyzeWeightImpact(board);
-          impactText.textContent = impact.explanation;
-          impactDisplay.classList.remove("hidden");
-        }
-        return;
-      }
-      timeout(index + 1);
-    }, 40)
+  if (board.speed !== "fast") {
+    if (controls) controls.classList.remove("hidden");
+  } else {
+    if (controls) controls.classList.add("hidden");
+    if (progressEl) progressEl.textContent = "";
   }
+
+  function onPathFrame(index) {
+    if (progressEl) {
+      var progressIndex = Math.min(index + 1, totalPathFrames + 1);
+      progressEl.textContent = "Path " + progressIndex + "/" + (totalPathFrames + 1);
+    }
+
+    if (!currentNodesToAnimate.length) currentNodesToAnimate.push(board.nodes[board.start]);
+
+    if (index === 0) {
+      shortestPathChange(currentNodesToAnimate[index]);
+    } else if (index < currentNodesToAnimate.length) {
+      shortestPathChange(currentNodesToAnimate[index], currentNodesToAnimate[index - 1]);
+    } else if (index === currentNodesToAnimate.length) {
+      shortestPathChange(board.nodes[board.target], currentNodesToAnimate[index - 1], "isActualTarget");
+    }
+  }
+
+  function onPathComplete() {
+    if (controls) controls.classList.add("hidden");
+    if (progressEl) progressEl.textContent = "";
+    board.toggleButtons();
+    var visitedCount = board.lastVisitedCount !== undefined ? board.lastVisitedCount :
+      (board.nodesToAnimate ? board.nodesToAnimate.length : 0);
+    var costObj = board.computePathCost();
+    var pathLength = costObj && costObj.pathLength ? costObj.pathLength : 0;
+    var pathCost = costObj && costObj.cost ? costObj.cost : 0;
+    var totalNodes = Object.keys(board.nodes).length;
+    var frontierSize = Math.max(totalNodes - visitedCount, 0);
+
+    // Ensure panel ends on a final event with fresh values/metrics
+    if (board.currentTrace) {
+      var lastEvent = board.currentTrace[board.currentTrace.length - 1];
+      var finalValues = { g: pathCost, h: 0, f: pathCost };
+      var finalMetrics = {
+        visitedCount: visitedCount,
+        pathCost: pathCost,
+        frontierSize: frontierSize
+      };
+
+      if (lastEvent && lastEvent.t === "found_target") {
+        lastEvent.values = finalValues;
+        lastEvent.metrics = Object.assign({}, lastEvent.metrics, finalMetrics);
+        board.updateExplanationPanel(lastEvent);
+      } else {
+        var finalEvent = {
+          t: "found_target",
+          step: board.currentTrace.length,
+          target: board.target,
+          values: finalValues,
+          metrics: finalMetrics
+        };
+        board.currentTrace.push(finalEvent);
+        board.updateExplanationPanel(finalEvent);
+      }
+    }
+
+    if (visitedCount > 0 && pathLength > 0) {
+      aiExplain.requestAIExplanation(board, visitedCount, pathLength);
+    }
+
+    var impactDisplay = document.getElementById("weightImpactDisplay");
+    var impactText = document.getElementById("weightImpactText");
+    if (impactDisplay && impactText) {
+      var impact = weightImpactAnalyzer.analyzeWeightImpact(board);
+      impactText.textContent = impact.explanation;
+      impactDisplay.classList.remove("hidden");
+    }
+  }
+
+  controller.start(totalPathFrames, 40, onPathFrame, onPathComplete, "shortestPath");
 
 
   function shortestPathChange(currentNode, previousNode, isActualTarget) {
@@ -640,6 +711,11 @@ Board.prototype.hidePathCost = function () {
 };
 
 Board.prototype.clearPath = function (clickedButton) {
+  if (this.animationController) this.animationController.stop();
+  var controls = document.getElementById("animationControls");
+  if (controls) controls.classList.add("hidden");
+  var progressEl = document.getElementById("animationProgress");
+  if (progressEl) progressEl.textContent = "";
   this.currentTrace = [];
   this.traceCursor = 0;
   this.lastVisitedCount = 0;
@@ -855,6 +931,16 @@ Board.prototype.changeStartNodeImages = function () {
   if (guaranteed.includes(this.currentAlgorithm)) {
     document.getElementById("algorithmDescriptor").innerHTML = `${name} is <i><b>weighted</b></i> and <i><b>guarantees</b></i> the shortest path!`;
   }
+
+  var key = algorithmDescriptions.getAlgorithmKey(this.currentAlgorithm, this.currentHeuristic);
+  var desc = algorithmDescriptions.descriptions[key];
+  if (desc) {
+    var el = document.getElementById("algorithmDescriptor");
+    var existing = el.innerHTML;
+    if (existing.indexOf(desc.shortDescription) === -1) {
+      el.innerHTML = existing + '<br><small style="color:#555">' + desc.shortDescription + '</small>';
+    }
+  }
 };
 
 let counter = 1;
@@ -989,6 +1075,30 @@ Board.prototype.toggleButtons = function () {
       document.getElementById("weightValue").textContent = this.currentWeightValue;
     }
 
+    var self = this;
+    var pauseBtn = document.getElementById("pauseResumeBtn");
+    var stepBtn = document.getElementById("stepForwardBtn");
+    if (pauseBtn && stepBtn) {
+      pauseBtn.onclick = function () {
+        var ctrl = self.animationController;
+        if (ctrl.isPaused) {
+          ctrl.resume();
+          this.innerHTML = '<span class="glyphicon glyphicon-pause"></span> Pause';
+        } else {
+          ctrl.pause();
+          this.innerHTML = '<span class="glyphicon glyphicon-play"></span> Resume';
+        }
+      };
+      stepBtn.onclick = function () {
+        var ctrl = self.animationController;
+        if (!ctrl.isPaused) {
+          ctrl.pause();
+          pauseBtn.innerHTML = '<span class="glyphicon glyphicon-play"></span> Resume';
+        }
+        ctrl.stepForward();
+      };
+    }
+
     document.getElementById("startStairDemonstration").onclick = () => {
       this.clearWalls();
       this.clearPath("clickedButton");
@@ -1003,12 +1113,14 @@ Board.prototype.toggleButtons = function () {
       this.currentAlgorithm = "bidirectional";
       this.currentHeuristic = "manhattanDistance";
       this.clearPath("clickedButton");
+      algorithmModal.showAlgorithmInfo(algorithmDescriptions.getAlgorithmKey("bidirectional"));
       this.changeStartNodeImages();
     }
 
     document.getElementById("startButtonDijkstra").onclick = () => {
       document.getElementById("startButtonStart").innerHTML = '<button id="actualStartButton" class="btn btn-default navbar-btn" type="button">Visualize Dijkstra\'s!</button>'
       this.currentAlgorithm = "dijkstra";
+      algorithmModal.showAlgorithmInfo(algorithmDescriptions.getAlgorithmKey("dijkstra"));
       this.changeStartNodeImages();
     }
 
@@ -1016,6 +1128,7 @@ Board.prototype.toggleButtons = function () {
       document.getElementById("startButtonStart").innerHTML = '<button id="actualStartButton" class="btn btn-default navbar-btn" type="button">Visualize Swarm!</button>'
       this.currentAlgorithm = "CLA";
       this.currentHeuristic = "manhattanDistance"
+      algorithmModal.showAlgorithmInfo(algorithmDescriptions.getAlgorithmKey("CLA", "manhattanDistance"));
       this.changeStartNodeImages();
     }
 
@@ -1023,6 +1136,7 @@ Board.prototype.toggleButtons = function () {
       document.getElementById("startButtonStart").innerHTML = '<button id="actualStartButton" class="btn btn-default navbar-btn" type="button">Visualize A*!</button>'
       this.currentAlgorithm = "astar";
       this.currentHeuristic = "poweredManhattanDistance"
+      algorithmModal.showAlgorithmInfo(algorithmDescriptions.getAlgorithmKey("astar"));
       this.changeStartNodeImages();
     }
 
@@ -1030,12 +1144,14 @@ Board.prototype.toggleButtons = function () {
       document.getElementById("startButtonStart").innerHTML = '<button id="actualStartButton" class="btn btn-default navbar-btn" type="button">Visualize Convergent Swarm!</button>'
       this.currentAlgorithm = "CLA";
       this.currentHeuristic = "extraPoweredManhattanDistance"
+      algorithmModal.showAlgorithmInfo(algorithmDescriptions.getAlgorithmKey("CLA", "extraPoweredManhattanDistance"));
       this.changeStartNodeImages();
     }
 
     document.getElementById("startButtonGreedy").onclick = () => {
       document.getElementById("startButtonStart").innerHTML = '<button id="actualStartButton" class="btn btn-default navbar-btn" type="button">Visualize Greedy!</button>'
       this.currentAlgorithm = "greedy";
+      algorithmModal.showAlgorithmInfo(algorithmDescriptions.getAlgorithmKey("greedy"));
       this.changeStartNodeImages();
     }
 
@@ -1043,6 +1159,7 @@ Board.prototype.toggleButtons = function () {
       document.getElementById("startButtonStart").innerHTML = '<button id="actualStartButton" class="btn btn-default navbar-btn" type="button">Visualize BFS!</button>'
       this.currentAlgorithm = "bfs";
       this.clearWeights();
+      algorithmModal.showAlgorithmInfo(algorithmDescriptions.getAlgorithmKey("bfs"));
       this.changeStartNodeImages();
     }
 
@@ -1050,6 +1167,7 @@ Board.prototype.toggleButtons = function () {
       document.getElementById("startButtonStart").innerHTML = '<button id="actualStartButton" class="btn btn-default navbar-btn" type="button">Visualize DFS!</button>'
       this.currentAlgorithm = "dfs";
       this.clearWeights();
+      algorithmModal.showAlgorithmInfo(algorithmDescriptions.getAlgorithmKey("dfs"));
       this.changeStartNodeImages();
     }
 
@@ -1074,6 +1192,11 @@ Board.prototype.toggleButtons = function () {
     }
 
     document.getElementById("startButtonClearBoard").onclick = () => {
+      if (this.animationController) this.animationController.stop();
+      var controls = document.getElementById("animationControls");
+      if (controls) controls.classList.add("hidden");
+      var progressEl = document.getElementById("animationProgress");
+      if (progressEl) progressEl.textContent = "";
       this.currentTrace = [];
       this.updateExplanationPanel(null);
       var impactDisplay = document.getElementById("weightImpactDisplay");

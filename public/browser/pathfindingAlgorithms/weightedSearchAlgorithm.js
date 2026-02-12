@@ -7,6 +7,11 @@ function weightedSearchAlgorithm(nodes, start, target, nodesToAnimate, boardArra
   }
   nodes[start].distance = 0;
   nodes[start].direction = "right";
+  // Trace-only gScore initialization (does not affect algorithm decisions)
+  Object.keys(nodes).forEach(function (id) {
+    nodes[id].gScore = Infinity;
+  });
+  if (nodes[start]) nodes[start].gScore = 0;
   let unvisitedNodes = Object.keys(nodes);
   while (unvisitedNodes.length) {
     let currentNode = closestNode(nodes, unvisitedNodes);
@@ -22,6 +27,15 @@ function weightedSearchAlgorithm(nodes, start, target, nodesToAnimate, boardArra
       var fValue = name === "dijkstra" ? currentNode.distance :
         (currentNode.totalDistance !== undefined && currentNode.totalDistance !== null ?
           currentNode.totalDistance : currentNode.distance);
+
+      if (name === "CLA") {
+        gValue = currentNode.gScore !== undefined ? currentNode.gScore : currentNode.distance;
+        hValue = manhattanDistance(currentNode, nodes[target]);
+        fValue = gValue + hValue;
+      }
+      if (name === "greedy") {
+        fValue = hValue;
+      }
       trace.push({
         t: "select_current",
         step: trace.length,
@@ -151,6 +165,11 @@ function updateNode(currentNode, targetNode, actualTargetNode, name, nodes, actu
         why: "new_cost_lower"
       });
     }
+    // Trace-only gScore (base + turn + weight)
+    var weightValue = targetNode.weight > 0 ? targetNode.weight : 0;
+    var gCandidate = (currentNode.gScore !== undefined ? currentNode.gScore : currentNode.distance) + distance[0] + weightValue;
+    targetNode.gScore = gCandidate;
+
     targetNode.distance = distanceToCompare;
     targetNode.previousNode = currentNode.id;
     targetNode.path = distance[1];
