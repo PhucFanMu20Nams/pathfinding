@@ -1,136 +1,200 @@
 (function(){function r(e,n,t){function o(i,f){if(!n[i]){if(!e[i]){var c="function"==typeof require&&require;if(!f&&c)return c(i,!0);if(u)return u(i,!0);var a=new Error("Cannot find module '"+i+"'");throw a.code="MODULE_NOT_FOUND",a}var p=n[i]={exports:{}};e[i][0].call(p.exports,function(r){var n=e[i][1][r];return o(n||r)},p,p.exports,r,e,n,t)}return n[i].exports}for(var u="function"==typeof require&&require,i=0;i<t.length;i++)o(t[i]);return o}return r})()({1:[function(require,module,exports){
+function AnimationController() {
+  this.isPaused = false;
+  this.timerId = null;
+  this.currentIndex = 0;
+  this.totalFrames = 0;
+  this.speed = 0;
+  this.phase = "idle";
+  this.onFrame = null;
+  this.onComplete = null;
+}
+
+AnimationController.prototype.start = function (totalFrames, speed, onFrame, onComplete, phaseLabel) {
+  this.stop();
+  this.totalFrames = totalFrames;
+  this.speed = speed;
+  this.currentIndex = 0;
+  this.isPaused = false;
+  this.phase = phaseLabel || "exploring";
+  this.onFrame = onFrame;
+  this.onComplete = onComplete;
+  this._scheduleNext();
+};
+
+AnimationController.prototype.pause = function () {
+  if (this.phase === "idle" || this.phase === "done") return;
+  this.isPaused = true;
+  if (this.timerId) {
+    clearTimeout(this.timerId);
+    this.timerId = null;
+  }
+};
+
+AnimationController.prototype.resume = function () {
+  if (!this.isPaused) return;
+  this.isPaused = false;
+  this._scheduleNext();
+};
+
+AnimationController.prototype.stepForward = function () {
+  if (this.phase === "idle" || this.phase === "done") return;
+  this.isPaused = true;
+  if (this.timerId) {
+    clearTimeout(this.timerId);
+    this.timerId = null;
+  }
+  if (this.currentIndex <= this.totalFrames) {
+    if (this.onFrame) this.onFrame(this.currentIndex);
+    this.currentIndex++;
+  }
+  if (this.currentIndex > this.totalFrames) {
+    this.phase = "done";
+    if (this.onComplete) this.onComplete();
+  }
+};
+
+AnimationController.prototype.stop = function () {
+  if (this.timerId) {
+    clearTimeout(this.timerId);
+    this.timerId = null;
+  }
+  this.isPaused = false;
+  this.currentIndex = 0;
+  this.totalFrames = 0;
+  this.phase = "idle";
+  this.onFrame = null;
+  this.onComplete = null;
+};
+
+AnimationController.prototype._scheduleNext = function () {
+  if (this.isPaused) return;
+  if (this.currentIndex > this.totalFrames) {
+    this.phase = "done";
+    if (this.onComplete) this.onComplete();
+    return;
+  }
+  var self = this;
+  this.timerId = setTimeout(function () {
+    if (self.isPaused) return;
+    if (self.onFrame) self.onFrame(self.currentIndex);
+    self.currentIndex++;
+    self._scheduleNext();
+  }, this.speed);
+};
+
+module.exports = AnimationController;
+
+},{}],2:[function(require,module,exports){
 const weightedSearchAlgorithm = require("../pathfindingAlgorithms/weightedSearchAlgorithm");
 const unweightedSearchAlgorithm = require("../pathfindingAlgorithms/unweightedSearchAlgorithm");
 const historyStorage = require("../utils/historyStorage");
 const serializeRun = require("../utils/runSerializer");
 
 function launchAnimations(board, success, type) {
-  let nodes = board.nodesToAnimate.slice(0);
-  let speed = board.speed === "fast" ?
-    0 : board.speed === "average" ?
-      100 : 500;
-  let shortestNodes;
-  function timeout(index) {
-    setTimeout(function () {
-      if (index === nodes.length) {
-        board.lastVisitedCount = nodes.length;
-        board.nodesToAnimate = [];
-        if (board.currentTrace && board.currentTrace.length > 0 && board.updateExplanationPanel) {
-          var finalEvent = board.currentTrace[board.currentTrace.length - 1];
-          board.updateExplanationPanel(finalEvent);
-        }
-        if (success) {
-          if (document.getElementById(board.target).className !== "visitedTargetNodeBlue") {
-            document.getElementById(board.target).className = "visitedTargetNodeBlue";
-          }
-          board.drawShortestPathTimeout(board.target, board.start, type);
-          board.reset();
-          // Save run to history + display cost
-          var visitedCount = nodes.length;
-          board.displayPathCost(visitedCount);
-          var runSummary = serializeRun(board, success, visitedCount);
-          historyStorage.saveRun(runSummary);
-          console.log("[Run Complete]", runSummary);
-          shortestNodes = board.shortestPathNodesToAnimate;
-          return;
-        } else {
-          console.log("Failure.");
-          board.reset();
-          board.toggleButtons();
-          return;
-        }
-      } else if (index === 0) {
-        if (document.getElementById(board.start).className !== "visitedStartNodePurple") {
-          document.getElementById(board.start).className = "visitedStartNodeBlue";
-        }
-        if (board.currentAlgorithm === "bidirectional") {
-          document.getElementById(board.target).className = "visitedTargetNodeBlue";
-        }
-        change(nodes[index])
-      } else if (index === nodes.length - 1 && board.currentAlgorithm === "bidirectional") {
-        change(nodes[index], nodes[index - 1], "bidirectional");
-      } else {
-        change(nodes[index], nodes[index - 1]);
+  var nodes = board.nodesToAnimate.slice(0);
+  var speed = board.speed === "fast" ? 0 : board.speed === "average" ? 100 : 500;
+  var controller = board.animationController;
+
+  var controls = document.getElementById("animationControls");
+  var progressEl = document.getElementById("animationProgress");
+  var pauseBtn = document.getElementById("pauseResumeBtn");
+
+  if (speed > 0) {
+    if (controls) controls.classList.remove("hidden");
+  } else {
+    if (controls) controls.classList.add("hidden");
+    if (progressEl) progressEl.textContent = "";
+  }
+
+  if (pauseBtn) {
+    pauseBtn.innerHTML = '<span class="glyphicon glyphicon-pause"></span> Pause';
+  }
+
+  function onExploreFrame(index) {
+    if (progressEl) {
+      var progressIndex = nodes.length ? Math.min(index + 1, nodes.length) : 0;
+      progressEl.textContent = "Exploring " + progressIndex + "/" + nodes.length;
+    }
+
+    if (index >= nodes.length) return;
+
+    if (index === 0) {
+      if (document.getElementById(board.start).className !== "visitedStartNodePurple") {
+        document.getElementById(board.start).className = "visitedStartNodeBlue";
       }
-      if (board.currentTrace && board.currentTrace.length > 0 && board.updateExplanationPanel) {
-        var traceIndex = Math.min(board.traceCursor, board.currentTrace.length - 1);
-        var event = board.currentTrace[traceIndex];
-        board.updateExplanationPanel(event);
-        board.traceCursor = Math.min(board.traceCursor + 1, board.currentTrace.length - 1);
+      if (board.currentAlgorithm === "bidirectional") {
+        document.getElementById(board.target).className = "visitedTargetNodeBlue";
       }
-      timeout(index + 1);
-    }, speed);
+      change(nodes[index]);
+    } else if (index === nodes.length - 1 && board.currentAlgorithm === "bidirectional") {
+      change(nodes[index], nodes[index - 1], "bidirectional");
+    } else if (index < nodes.length) {
+      change(nodes[index], nodes[index - 1]);
+    }
+
+    if (board.currentTrace && board.currentTrace.length > 0 && board.updateExplanationPanel) {
+      var traceIndex = Math.min(board.traceCursor, board.currentTrace.length - 1);
+      var event = board.currentTrace[traceIndex];
+      board.updateExplanationPanel(event);
+      board.traceCursor = Math.min(board.traceCursor + 1, board.currentTrace.length - 1);
+    }
+  }
+
+  function onExploreComplete() {
+    board.lastVisitedCount = nodes.length;
+    board.nodesToAnimate = [];
+    if (progressEl) progressEl.textContent = "";
+
+    if (board.currentTrace && board.currentTrace.length > 0 && board.updateExplanationPanel) {
+      var finalEvent = board.currentTrace[board.currentTrace.length - 1];
+      board.updateExplanationPanel(finalEvent);
+    }
+
+    if (success) {
+      if (document.getElementById(board.target).className !== "visitedTargetNodeBlue") {
+        document.getElementById(board.target).className = "visitedTargetNodeBlue";
+      }
+      board.drawShortestPathTimeout(board.target, board.start, type);
+      board.reset();
+      var visitedCount = nodes.length;
+      board.displayPathCost(visitedCount);
+      var runSummary = serializeRun(board, success, visitedCount);
+      historyStorage.saveRun(runSummary);
+      console.log("[Run Complete]", runSummary);
+      return;
+    }
+
+    console.log("Failure.");
+    board.reset();
+    if (controls) controls.classList.add("hidden");
+    if (progressEl) progressEl.textContent = "";
+    board.toggleButtons();
   }
 
   function change(currentNode, previousNode, bidirectional) {
-    let currentHTMLNode = document.getElementById(currentNode.id);
-    let relevantClassNames = ["start", "target", "visitedStartNodeBlue", "visitedStartNodePurple", "visitedTargetNodePurple", "visitedTargetNodeBlue"];
+    var currentHTMLNode = document.getElementById(currentNode.id);
+    var relevantClassNames = ["start", "target", "visitedStartNodeBlue", "visitedStartNodePurple", "visitedTargetNodePurple", "visitedTargetNodeBlue"];
     if (!relevantClassNames.includes(currentHTMLNode.className)) {
-      currentHTMLNode.className = !bidirectional ?
-        "current" : currentNode.weight > 0 ?
-          "visited weight" : "visited";
+      currentHTMLNode.className = !bidirectional ? "current" : currentNode.weight > 0 ? "visited weight" : "visited";
     }
     if (currentHTMLNode.className === "visitedStartNodePurple") {
       currentHTMLNode.className = "visitedStartNodeBlue";
     }
     if (previousNode) {
-      let previousHTMLNode = document.getElementById(previousNode.id);
+      var previousHTMLNode = document.getElementById(previousNode.id);
       if (!relevantClassNames.includes(previousHTMLNode.className)) {
         previousHTMLNode.className = previousNode.weight > 0 ? "visited weight" : "visited";
       }
     }
   }
 
-  function shortestPathTimeout(index) {
-    setTimeout(function () {
-      if (index === shortestNodes.length) {
-        board.reset();
-        shortestPathChange(board.nodes[board.target], shortestNodes[index - 1]);
-        board.shortestPathNodesToAnimate = [];
-        return;
-      } else if (index === 0) {
-        shortestPathChange(shortestNodes[index])
-      } else {
-        shortestPathChange(shortestNodes[index], shortestNodes[index - 1]);
-      }
-      shortestPathTimeout(index + 1);
-    }, 40);
-  }
-
-  function shortestPathChange(currentNode, previousNode) {
-    let currentHTMLNode = document.getElementById(currentNode.id);
-    if (type === "unweighted") {
-      currentHTMLNode.className = "shortest-path-unweighted";
-    } else {
-      if (currentNode.direction === "up") {
-        currentHTMLNode.className = "shortest-path-up";
-      } else if (currentNode.direction === "down") {
-        currentHTMLNode.className = "shortest-path-down";
-      } else if (currentNode.direction === "right") {
-        currentHTMLNode.className = "shortest-path-right";
-      } else if (currentNode.direction === "left") {
-        currentHTMLNode.className = "shortest-path-left";
-      } else if (currentNode.direction = "down-right") {
-        currentHTMLNode.className = "wall"
-      }
-    }
-    if (previousNode) {
-      let previousHTMLNode = document.getElementById(previousNode.id);
-      previousHTMLNode.className = "shortest-path";
-    } else {
-      let element = document.getElementById(board.start);
-      element.className = "shortest-path";
-      element.removeAttribute("style");
-    }
-  }
-
-  timeout(0);
-
-};
+  controller.start(nodes.length, speed, onExploreFrame, onExploreComplete, "exploring");
+}
 
 module.exports = launchAnimations;
 
-},{"../pathfindingAlgorithms/unweightedSearchAlgorithm":15,"../pathfindingAlgorithms/weightedSearchAlgorithm":16,"../utils/historyStorage":20,"../utils/runSerializer":22}],2:[function(require,module,exports){
+},{"../pathfindingAlgorithms/unweightedSearchAlgorithm":16,"../pathfindingAlgorithms/weightedSearchAlgorithm":17,"../utils/historyStorage":23,"../utils/runSerializer":25}],3:[function(require,module,exports){
 const weightedSearchAlgorithm = require("../pathfindingAlgorithms/weightedSearchAlgorithm");
 const unweightedSearchAlgorithm = require("../pathfindingAlgorithms/unweightedSearchAlgorithm");
 
@@ -241,7 +305,7 @@ function launchInstantAnimations(board, success, type) {
 
 module.exports = launchInstantAnimations;
 
-},{"../pathfindingAlgorithms/unweightedSearchAlgorithm":15,"../pathfindingAlgorithms/weightedSearchAlgorithm":16}],3:[function(require,module,exports){
+},{"../pathfindingAlgorithms/unweightedSearchAlgorithm":16,"../pathfindingAlgorithms/weightedSearchAlgorithm":17}],4:[function(require,module,exports){
 function mazeGenerationAnimations(board) {
   let nodes = board.wallsToAnimate.slice(0);
   let speed = board.speed === "fast" ?
@@ -264,7 +328,7 @@ function mazeGenerationAnimations(board) {
 
 module.exports = mazeGenerationAnimations;
 
-},{}],4:[function(require,module,exports){
+},{}],5:[function(require,module,exports){
 const Node = require("./node");
 const launchAnimations = require("./animations/launchAnimations");
 const launchInstantAnimations = require("./animations/launchInstantAnimations");
@@ -286,6 +350,9 @@ const historyStorage = require("./utils/historyStorage");
 const aiExplain = require("./utils/aiExplain");
 const historyUI = require("./utils/historyUI");
 const weightImpactAnalyzer = require("./utils/weightImpactAnalyzer");
+const algorithmDescriptions = require("./utils/algorithmDescriptions");
+const algorithmModal = require("./utils/algorithmModal");
+const AnimationController = require("./animations/animationController");
 
 function Board(height, width) {
   this.height = height;
@@ -321,6 +388,7 @@ function Board(height, width) {
     visitedCount: null,
     currentNode: null
   };
+  this.animationController = new AnimationController();
 
   var panel = document.getElementById("explanationPanel");
   if (panel && !this.explanationPanelVisible) {
@@ -402,7 +470,34 @@ Board.prototype.updateExplanationPanel = function (event) {
     }
   }
 
-  var explanation = explanationTemplates.generateExplanation(event);
+  var algoKey = algorithmDescriptions.getAlgorithmKey(this.currentAlgorithm, this.currentHeuristic);
+  var isSwarm = algoKey === "swarm" || algoKey === "convergentSwarm";
+  var relaxNodeScore = null;
+  if (isSwarm && event && event.t === "relax_neighbor" && event.to && this.nodes[event.to]) {
+    relaxNodeScore = this.nodes[event.to].gScore;
+  }
+  var explanationEvent = event;
+  if (isSwarm && event && event.t === "relax_neighbor" && relaxNodeScore !== null && event.new) {
+    explanationEvent = Object.assign({}, event, {
+      new: Object.assign({}, event.new, { g: relaxNodeScore, f: relaxNodeScore })
+    });
+  }
+  var explanation = explanationTemplates.generateExplanation(explanationEvent, algoKey);
+
+  var gLabel = document.getElementById("gLabel");
+  var hLabel = document.getElementById("hLabel");
+  var fLabel = document.getElementById("fLabel");
+  if (gLabel && hLabel && fLabel) {
+    if (isSwarm) {
+      gLabel.textContent = "Score:";
+      hLabel.textContent = "Heuristic:";
+      fLabel.textContent = "Score:";
+    } else {
+      gLabel.textContent = "g:";
+      hLabel.textContent = "h:";
+      fLabel.textContent = "f:";
+    }
+  }
 
   document.getElementById("stepNumber").textContent = event.step;
   document.getElementById("explanationText").textContent = explanation;
@@ -431,8 +526,15 @@ Board.prototype.updateExplanationPanel = function (event) {
     if (event.values.h !== undefined) cached.h = event.values.h;
     if (event.values.f !== undefined) cached.f = event.values.f;
   } else if (event.t === "relax_neighbor" && event.new) {
-    if (event.new.g !== undefined) cached.g = event.new.g;
-    if (event.new.f !== undefined) cached.f = event.new.f;
+    if (isSwarm) {
+      if (relaxNodeScore !== null && relaxNodeScore !== undefined) {
+        cached.g = relaxNodeScore;
+        cached.f = relaxNodeScore;
+      }
+    } else {
+      if (event.new.g !== undefined) cached.g = event.new.g;
+      if (event.new.f !== undefined) cached.f = event.new.f;
+    }
   }
   if (event.t === "found_target" && computedCost !== null) {
     cached.g = computedCost;
@@ -440,9 +542,25 @@ Board.prototype.updateExplanationPanel = function (event) {
     cached.f = computedCost;
   }
 
-  document.getElementById("gCost").textContent = cached.g !== null ? cached.g : "—";
-  document.getElementById("hCost").textContent = cached.h !== null ? cached.h : "—";
-  document.getElementById("fCost").textContent = cached.f !== null ? cached.f : "—";
+  if (isSwarm) {
+    var currentId = event.current || event.from || event.target || cached.currentNode;
+    var heuristic = null;
+    if (currentId && this.target) {
+      var currentParts = currentId.split("-").map(Number);
+      var targetParts = this.target.split("-").map(Number);
+      if (currentParts.length === 2 && targetParts.length === 2) {
+        heuristic = Math.abs(currentParts[0] - targetParts[0]) + Math.abs(currentParts[1] - targetParts[1]);
+      }
+    }
+    var useRelaxScore = event && event.t === "relax_neighbor" && relaxNodeScore !== null && relaxNodeScore !== undefined;
+    document.getElementById("gCost").textContent = useRelaxScore ? relaxNodeScore : (cached.g !== null ? cached.g : "—");
+    document.getElementById("hCost").textContent = heuristic !== null ? heuristic : "—";
+    document.getElementById("fCost").textContent = useRelaxScore ? relaxNodeScore : (cached.g !== null ? cached.g : "—");
+  } else {
+    document.getElementById("gCost").textContent = cached.g !== null ? cached.g : "—";
+    document.getElementById("hCost").textContent = cached.h !== null ? cached.h : "—";
+    document.getElementById("fCost").textContent = cached.f !== null ? cached.f : "—";
+  }
 
   if (event.metrics) {
     if (event.metrics.frontierSize !== undefined) cached.frontierSize = event.metrics.frontierSize;
@@ -721,71 +839,88 @@ Board.prototype.drawShortestPathTimeout = function (targetNodeId, startNodeId, t
   // Preserve computed shortest path for UI + history (especially bidirectional)
   board.shortestPathNodesToAnimate = currentNodesToAnimate.slice(0);
 
-  timeout(0);
+  var controller = board.animationController;
+  var totalPathFrames = currentNodesToAnimate.length;
+  var controls = document.getElementById("animationControls");
+  var progressEl = document.getElementById("animationProgress");
 
-  function timeout(index) {
-    if (!currentNodesToAnimate.length) currentNodesToAnimate.push(board.nodes[board.start]);
-    setTimeout(function () {
-      if (index === 0) {
-        shortestPathChange(currentNodesToAnimate[index]);
-      } else if (index < currentNodesToAnimate.length) {
-        shortestPathChange(currentNodesToAnimate[index], currentNodesToAnimate[index - 1]);
-      } else if (index === currentNodesToAnimate.length) {
-        shortestPathChange(board.nodes[board.target], currentNodesToAnimate[index - 1], "isActualTarget");
-      }
-      if (index > currentNodesToAnimate.length) {
-        board.toggleButtons();
-        var visitedCount = board.lastVisitedCount !== undefined ? board.lastVisitedCount :
-          (board.nodesToAnimate ? board.nodesToAnimate.length : 0);
-        var costObj = board.computePathCost();
-        var pathLength = costObj && costObj.pathLength ? costObj.pathLength : 0;
-        var pathCost = costObj && costObj.cost ? costObj.cost : 0;
-        var totalNodes = Object.keys(board.nodes).length;
-        var frontierSize = Math.max(totalNodes - visitedCount, 0);
-
-        // Ensure panel ends on a final event with fresh values/metrics
-        if (board.currentTrace) {
-          var lastEvent = board.currentTrace[board.currentTrace.length - 1];
-          var finalValues = { g: pathCost, h: 0, f: pathCost };
-          var finalMetrics = {
-            visitedCount: visitedCount,
-            pathCost: pathCost,
-            frontierSize: frontierSize
-          };
-
-          if (lastEvent && lastEvent.t === "found_target") {
-            lastEvent.values = finalValues;
-            lastEvent.metrics = Object.assign({}, lastEvent.metrics, finalMetrics);
-            board.updateExplanationPanel(lastEvent);
-          } else {
-            var finalEvent = {
-              t: "found_target",
-              step: board.currentTrace.length,
-              target: board.target,
-              values: finalValues,
-              metrics: finalMetrics
-            };
-            board.currentTrace.push(finalEvent);
-            board.updateExplanationPanel(finalEvent);
-          }
-        }
-
-        if (visitedCount > 0 && pathLength > 0) {
-          aiExplain.requestAIExplanation(board, visitedCount, pathLength);
-        }
-
-        var impactDisplay = document.getElementById("weightImpactDisplay");
-        var impactText = document.getElementById("weightImpactText");
-        if (impactDisplay && impactText) {
-          var impact = weightImpactAnalyzer.analyzeWeightImpact(board);
-          impactText.textContent = impact.explanation;
-          impactDisplay.classList.remove("hidden");
-        }
-        return;
-      }
-      timeout(index + 1);
-    }, 40)
+  if (board.speed !== "fast") {
+    if (controls) controls.classList.remove("hidden");
+  } else {
+    if (controls) controls.classList.add("hidden");
+    if (progressEl) progressEl.textContent = "";
   }
+
+  function onPathFrame(index) {
+    if (progressEl) {
+      var progressIndex = Math.min(index + 1, totalPathFrames + 1);
+      progressEl.textContent = "Path " + progressIndex + "/" + (totalPathFrames + 1);
+    }
+
+    if (!currentNodesToAnimate.length) currentNodesToAnimate.push(board.nodes[board.start]);
+
+    if (index === 0) {
+      shortestPathChange(currentNodesToAnimate[index]);
+    } else if (index < currentNodesToAnimate.length) {
+      shortestPathChange(currentNodesToAnimate[index], currentNodesToAnimate[index - 1]);
+    } else if (index === currentNodesToAnimate.length) {
+      shortestPathChange(board.nodes[board.target], currentNodesToAnimate[index - 1], "isActualTarget");
+    }
+  }
+
+  function onPathComplete() {
+    if (controls) controls.classList.add("hidden");
+    if (progressEl) progressEl.textContent = "";
+    board.toggleButtons();
+    var visitedCount = board.lastVisitedCount !== undefined ? board.lastVisitedCount :
+      (board.nodesToAnimate ? board.nodesToAnimate.length : 0);
+    var costObj = board.computePathCost();
+    var pathLength = costObj && costObj.pathLength ? costObj.pathLength : 0;
+    var pathCost = costObj && costObj.cost ? costObj.cost : 0;
+    var totalNodes = Object.keys(board.nodes).length;
+    var frontierSize = Math.max(totalNodes - visitedCount, 0);
+
+    // Ensure panel ends on a final event with fresh values/metrics
+    if (board.currentTrace) {
+      var lastEvent = board.currentTrace[board.currentTrace.length - 1];
+      var finalValues = { g: pathCost, h: 0, f: pathCost };
+      var finalMetrics = {
+        visitedCount: visitedCount,
+        pathCost: pathCost,
+        frontierSize: frontierSize
+      };
+
+      if (lastEvent && lastEvent.t === "found_target") {
+        lastEvent.values = finalValues;
+        lastEvent.metrics = Object.assign({}, lastEvent.metrics, finalMetrics);
+        board.updateExplanationPanel(lastEvent);
+      } else {
+        var finalEvent = {
+          t: "found_target",
+          step: board.currentTrace.length,
+          target: board.target,
+          values: finalValues,
+          metrics: finalMetrics
+        };
+        board.currentTrace.push(finalEvent);
+        board.updateExplanationPanel(finalEvent);
+      }
+    }
+
+    if (visitedCount > 0 && pathLength > 0) {
+      aiExplain.requestAIExplanation(board, visitedCount, pathLength);
+    }
+
+    var impactDisplay = document.getElementById("weightImpactDisplay");
+    var impactText = document.getElementById("weightImpactText");
+    if (impactDisplay && impactText) {
+      var impact = weightImpactAnalyzer.analyzeWeightImpact(board);
+      impactText.textContent = impact.explanation;
+      impactDisplay.classList.remove("hidden");
+    }
+  }
+
+  controller.start(totalPathFrames, 40, onPathFrame, onPathComplete, "shortestPath");
 
 
   function shortestPathChange(currentNode, previousNode, isActualTarget) {
@@ -907,6 +1042,11 @@ Board.prototype.hidePathCost = function () {
 };
 
 Board.prototype.clearPath = function (clickedButton) {
+  if (this.animationController) this.animationController.stop();
+  var controls = document.getElementById("animationControls");
+  if (controls) controls.classList.add("hidden");
+  var progressEl = document.getElementById("animationProgress");
+  if (progressEl) progressEl.textContent = "";
   this.currentTrace = [];
   this.traceCursor = 0;
   this.lastVisitedCount = 0;
@@ -1122,6 +1262,16 @@ Board.prototype.changeStartNodeImages = function () {
   if (guaranteed.includes(this.currentAlgorithm)) {
     document.getElementById("algorithmDescriptor").innerHTML = `${name} is <i><b>weighted</b></i> and <i><b>guarantees</b></i> the shortest path!`;
   }
+
+  var key = algorithmDescriptions.getAlgorithmKey(this.currentAlgorithm, this.currentHeuristic);
+  var desc = algorithmDescriptions.descriptions[key];
+  if (desc) {
+    var el = document.getElementById("algorithmDescriptor");
+    var existing = el.innerHTML;
+    if (existing.indexOf(desc.shortDescription) === -1) {
+      el.innerHTML = existing + '<br><small style="color:#555">' + desc.shortDescription + '</small>';
+    }
+  }
 };
 
 let counter = 1;
@@ -1256,6 +1406,30 @@ Board.prototype.toggleButtons = function () {
       document.getElementById("weightValue").textContent = this.currentWeightValue;
     }
 
+    var self = this;
+    var pauseBtn = document.getElementById("pauseResumeBtn");
+    var stepBtn = document.getElementById("stepForwardBtn");
+    if (pauseBtn && stepBtn) {
+      pauseBtn.onclick = function () {
+        var ctrl = self.animationController;
+        if (ctrl.isPaused) {
+          ctrl.resume();
+          this.innerHTML = '<span class="glyphicon glyphicon-pause"></span> Pause';
+        } else {
+          ctrl.pause();
+          this.innerHTML = '<span class="glyphicon glyphicon-play"></span> Resume';
+        }
+      };
+      stepBtn.onclick = function () {
+        var ctrl = self.animationController;
+        if (!ctrl.isPaused) {
+          ctrl.pause();
+          pauseBtn.innerHTML = '<span class="glyphicon glyphicon-play"></span> Resume';
+        }
+        ctrl.stepForward();
+      };
+    }
+
     document.getElementById("startStairDemonstration").onclick = () => {
       this.clearWalls();
       this.clearPath("clickedButton");
@@ -1270,12 +1444,14 @@ Board.prototype.toggleButtons = function () {
       this.currentAlgorithm = "bidirectional";
       this.currentHeuristic = "manhattanDistance";
       this.clearPath("clickedButton");
+      algorithmModal.showAlgorithmInfo(algorithmDescriptions.getAlgorithmKey("bidirectional"));
       this.changeStartNodeImages();
     }
 
     document.getElementById("startButtonDijkstra").onclick = () => {
       document.getElementById("startButtonStart").innerHTML = '<button id="actualStartButton" class="btn btn-default navbar-btn" type="button">Visualize Dijkstra\'s!</button>'
       this.currentAlgorithm = "dijkstra";
+      algorithmModal.showAlgorithmInfo(algorithmDescriptions.getAlgorithmKey("dijkstra"));
       this.changeStartNodeImages();
     }
 
@@ -1283,6 +1459,7 @@ Board.prototype.toggleButtons = function () {
       document.getElementById("startButtonStart").innerHTML = '<button id="actualStartButton" class="btn btn-default navbar-btn" type="button">Visualize Swarm!</button>'
       this.currentAlgorithm = "CLA";
       this.currentHeuristic = "manhattanDistance"
+      algorithmModal.showAlgorithmInfo(algorithmDescriptions.getAlgorithmKey("CLA", "manhattanDistance"));
       this.changeStartNodeImages();
     }
 
@@ -1290,6 +1467,7 @@ Board.prototype.toggleButtons = function () {
       document.getElementById("startButtonStart").innerHTML = '<button id="actualStartButton" class="btn btn-default navbar-btn" type="button">Visualize A*!</button>'
       this.currentAlgorithm = "astar";
       this.currentHeuristic = "poweredManhattanDistance"
+      algorithmModal.showAlgorithmInfo(algorithmDescriptions.getAlgorithmKey("astar"));
       this.changeStartNodeImages();
     }
 
@@ -1297,12 +1475,14 @@ Board.prototype.toggleButtons = function () {
       document.getElementById("startButtonStart").innerHTML = '<button id="actualStartButton" class="btn btn-default navbar-btn" type="button">Visualize Convergent Swarm!</button>'
       this.currentAlgorithm = "CLA";
       this.currentHeuristic = "extraPoweredManhattanDistance"
+      algorithmModal.showAlgorithmInfo(algorithmDescriptions.getAlgorithmKey("CLA", "extraPoweredManhattanDistance"));
       this.changeStartNodeImages();
     }
 
     document.getElementById("startButtonGreedy").onclick = () => {
       document.getElementById("startButtonStart").innerHTML = '<button id="actualStartButton" class="btn btn-default navbar-btn" type="button">Visualize Greedy!</button>'
       this.currentAlgorithm = "greedy";
+      algorithmModal.showAlgorithmInfo(algorithmDescriptions.getAlgorithmKey("greedy"));
       this.changeStartNodeImages();
     }
 
@@ -1310,6 +1490,7 @@ Board.prototype.toggleButtons = function () {
       document.getElementById("startButtonStart").innerHTML = '<button id="actualStartButton" class="btn btn-default navbar-btn" type="button">Visualize BFS!</button>'
       this.currentAlgorithm = "bfs";
       this.clearWeights();
+      algorithmModal.showAlgorithmInfo(algorithmDescriptions.getAlgorithmKey("bfs"));
       this.changeStartNodeImages();
     }
 
@@ -1317,6 +1498,7 @@ Board.prototype.toggleButtons = function () {
       document.getElementById("startButtonStart").innerHTML = '<button id="actualStartButton" class="btn btn-default navbar-btn" type="button">Visualize DFS!</button>'
       this.currentAlgorithm = "dfs";
       this.clearWeights();
+      algorithmModal.showAlgorithmInfo(algorithmDescriptions.getAlgorithmKey("dfs"));
       this.changeStartNodeImages();
     }
 
@@ -1341,6 +1523,11 @@ Board.prototype.toggleButtons = function () {
     }
 
     document.getElementById("startButtonClearBoard").onclick = () => {
+      if (this.animationController) this.animationController.stop();
+      var controls = document.getElementById("animationControls");
+      if (controls) controls.classList.add("hidden");
+      var progressEl = document.getElementById("animationProgress");
+      if (progressEl) progressEl.textContent = "";
       this.currentTrace = [];
       this.updateExplanationPanel(null);
       var impactDisplay = document.getElementById("weightImpactDisplay");
@@ -1505,7 +1692,7 @@ window.onkeyup = (e) => {
   newBoard.keyDown = false;
 }
 
-},{"./animations/launchAnimations":1,"./animations/launchInstantAnimations":2,"./animations/mazeGenerationAnimations":3,"./getDistance":5,"./mazeAlgorithms/otherMaze":6,"./mazeAlgorithms/otherOtherMaze":7,"./mazeAlgorithms/recursiveDivisionMaze":8,"./mazeAlgorithms/simpleDemonstration":9,"./mazeAlgorithms/stairDemonstration":10,"./mazeAlgorithms/weightsDemonstration":11,"./node":12,"./pathfindingAlgorithms/astar":13,"./pathfindingAlgorithms/bidirectional":14,"./pathfindingAlgorithms/unweightedSearchAlgorithm":15,"./pathfindingAlgorithms/weightedSearchAlgorithm":16,"./utils/aiExplain":17,"./utils/explanationTemplates":18,"./utils/historyStorage":20,"./utils/historyUI":21,"./utils/runSerializer":22,"./utils/weightImpactAnalyzer":23}],5:[function(require,module,exports){
+},{"./animations/animationController":1,"./animations/launchAnimations":2,"./animations/launchInstantAnimations":3,"./animations/mazeGenerationAnimations":4,"./getDistance":6,"./mazeAlgorithms/otherMaze":7,"./mazeAlgorithms/otherOtherMaze":8,"./mazeAlgorithms/recursiveDivisionMaze":9,"./mazeAlgorithms/simpleDemonstration":10,"./mazeAlgorithms/stairDemonstration":11,"./mazeAlgorithms/weightsDemonstration":12,"./node":13,"./pathfindingAlgorithms/astar":14,"./pathfindingAlgorithms/bidirectional":15,"./pathfindingAlgorithms/unweightedSearchAlgorithm":16,"./pathfindingAlgorithms/weightedSearchAlgorithm":17,"./utils/aiExplain":18,"./utils/algorithmDescriptions":19,"./utils/algorithmModal":20,"./utils/explanationTemplates":21,"./utils/historyStorage":23,"./utils/historyUI":24,"./utils/runSerializer":25,"./utils/weightImpactAnalyzer":26}],6:[function(require,module,exports){
 function getDistance(nodeOne, nodeTwo) {
   let currentCoordinates = nodeOne.id.split("-");
   let targetCoordinates = nodeTwo.id.split("-");
@@ -1559,7 +1746,7 @@ function getDistance(nodeOne, nodeTwo) {
 
 module.exports = getDistance;
 
-},{}],6:[function(require,module,exports){
+},{}],7:[function(require,module,exports){
 function recursiveDivisionMaze(board, rowStart, rowEnd, colStart, colEnd, orientation, surroundingWalls) {
   if (rowEnd < rowStart || colEnd < colStart) {
     return;
@@ -1652,7 +1839,7 @@ function recursiveDivisionMaze(board, rowStart, rowEnd, colStart, colEnd, orient
 
 module.exports = recursiveDivisionMaze;
 
-},{}],7:[function(require,module,exports){
+},{}],8:[function(require,module,exports){
 function recursiveDivisionMaze(board, rowStart, rowEnd, colStart, colEnd, orientation, surroundingWalls) {
   if (rowEnd < rowStart || colEnd < colStart) {
     return;
@@ -1745,7 +1932,7 @@ function recursiveDivisionMaze(board, rowStart, rowEnd, colStart, colEnd, orient
 
 module.exports = recursiveDivisionMaze;
 
-},{}],8:[function(require,module,exports){
+},{}],9:[function(require,module,exports){
 function recursiveDivisionMaze(board, rowStart, rowEnd, colStart, colEnd, orientation, surroundingWalls, type) {
   if (rowEnd < rowStart || colEnd < colStart) {
     return;
@@ -1856,7 +2043,7 @@ function recursiveDivisionMaze(board, rowStart, rowEnd, colStart, colEnd, orient
 
 module.exports = recursiveDivisionMaze;
 
-},{}],9:[function(require,module,exports){
+},{}],10:[function(require,module,exports){
 function simpleDemonstration(board) {
   let currentIdY = board.width - 10;
   for (let counter = 0; counter < 7; counter++) {
@@ -1879,7 +2066,7 @@ function simpleDemonstration(board) {
 
 module.exports = simpleDemonstration;
 
-},{}],10:[function(require,module,exports){
+},{}],11:[function(require,module,exports){
 function stairDemonstration(board) {
   let currentIdX = board.height - 1;
   let currentIdY = 0;
@@ -1921,7 +2108,7 @@ function stairDemonstration(board) {
 
 module.exports = stairDemonstration;
 
-},{}],11:[function(require,module,exports){
+},{}],12:[function(require,module,exports){
 function weightsDemonstration(board) {
   let currentIdX = board.height - 1;
   let currentIdY = 35;
@@ -1953,7 +2140,7 @@ function weightsDemonstration(board) {
 
 module.exports = weightsDemonstration;
 
-},{}],12:[function(require,module,exports){
+},{}],13:[function(require,module,exports){
 function Node(id, status) {
   this.id = id;
   this.status = status;
@@ -1978,7 +2165,7 @@ function Node(id, status) {
 
 module.exports = Node;
 
-},{}],13:[function(require,module,exports){
+},{}],14:[function(require,module,exports){
 function astar(nodes, start, target, nodesToAnimate, boardArray, name, heuristic, trace) {
   if (!start || !target || start === target) {
     return false;
@@ -2370,7 +2557,7 @@ function manhattanDistance(nodeOne, nodeTwo) {
 
 module.exports = astar;
 
-},{}],14:[function(require,module,exports){
+},{}],15:[function(require,module,exports){
 const astar = require("./astar");
 
 function bidirectional(nodes, start, target, nodesToAnimate, boardArray, name, heuristic, board, trace) {
@@ -2940,7 +3127,7 @@ function weightedManhattanDistance(nodeOne, nodeTwo, nodes) {
 
 module.exports = bidirectional;
 
-},{"./astar":13}],15:[function(require,module,exports){
+},{"./astar":14}],16:[function(require,module,exports){
 function unweightedSearchAlgorithm(nodes, start, target, nodesToAnimate, boardArray, name, trace) {
   if (!start || !target || start === target) {
     return false;
@@ -3104,7 +3291,7 @@ function computePathLength(nodes, start, target) {
 
 module.exports = unweightedSearchAlgorithm;
 
-},{}],16:[function(require,module,exports){
+},{}],17:[function(require,module,exports){
 const astar = require("./astar");
 
 function weightedSearchAlgorithm(nodes, start, target, nodesToAnimate, boardArray, name, heuristic, trace) {
@@ -3114,6 +3301,11 @@ function weightedSearchAlgorithm(nodes, start, target, nodesToAnimate, boardArra
   }
   nodes[start].distance = 0;
   nodes[start].direction = "right";
+  // Trace-only gScore initialization (does not affect algorithm decisions)
+  Object.keys(nodes).forEach(function (id) {
+    nodes[id].gScore = Infinity;
+  });
+  if (nodes[start]) nodes[start].gScore = 0;
   let unvisitedNodes = Object.keys(nodes);
   while (unvisitedNodes.length) {
     let currentNode = closestNode(nodes, unvisitedNodes);
@@ -3129,6 +3321,15 @@ function weightedSearchAlgorithm(nodes, start, target, nodesToAnimate, boardArra
       var fValue = name === "dijkstra" ? currentNode.distance :
         (currentNode.totalDistance !== undefined && currentNode.totalDistance !== null ?
           currentNode.totalDistance : currentNode.distance);
+
+      if (name === "CLA") {
+        gValue = currentNode.gScore !== undefined ? currentNode.gScore : currentNode.distance;
+        hValue = manhattanDistance(currentNode, nodes[target]);
+        fValue = gValue + hValue;
+      }
+      if (name === "greedy") {
+        fValue = hValue;
+      }
       trace.push({
         t: "select_current",
         step: trace.length,
@@ -3258,6 +3459,11 @@ function updateNode(currentNode, targetNode, actualTargetNode, name, nodes, actu
         why: "new_cost_lower"
       });
     }
+    // Trace-only gScore (base + turn + weight)
+    var weightValue = targetNode.weight > 0 ? targetNode.weight : 0;
+    var gCandidate = (currentNode.gScore !== undefined ? currentNode.gScore : currentNode.distance) + distance[0] + weightValue;
+    targetNode.gScore = gCandidate;
+
     targetNode.distance = distanceToCompare;
     targetNode.previousNode = currentNode.id;
     targetNode.path = distance[1];
@@ -3541,7 +3747,7 @@ function weightedManhattanDistance(nodeOne, nodeTwo, nodes) {
 
 module.exports = weightedSearchAlgorithm;
 
-},{"./astar":13}],17:[function(require,module,exports){
+},{"./astar":14}],18:[function(require,module,exports){
 var gridMetrics = require("./gridMetrics");
 
 var ALGORITHM_META = {
@@ -3722,21 +3928,328 @@ module.exports = {
   buildRunDigest: buildRunDigest
 };
 
-},{"./gridMetrics":19}],18:[function(require,module,exports){
-function generateExplanation(event) {
+},{"./gridMetrics":22}],19:[function(require,module,exports){
+var descriptions = {
+  dijkstra: {
+    name: "Dijkstra's Algorithm",
+    shortDescription: "Finds the shortest path by always expanding the cheapest unvisited node.",
+    category: "weighted",
+    guaranteesOptimal: true,
+    howItWorks: [
+      "1. Set start distance = 0, all others = infinity",
+      "2. Pick the unvisited node with the smallest distance",
+      "3. Update neighbors if a cheaper path is found",
+      "4. Mark the current node as visited",
+      "5. Repeat until the target is reached or nodes run out"
+    ],
+    pseudocode: [
+      "dist[start] = 0",
+      "while unvisited not empty:",
+      "  current = node with MIN dist",
+      "  if current == target: DONE",
+      "  for each neighbor:",
+      "    newCost = dist[current] + edgeCost",
+      "    if newCost < dist[neighbor]:",
+      "      dist[neighbor] = newCost",
+      "      neighbor.prev = current"
+    ],
+    keyInsight: "Expanding the cheapest node first guarantees the shortest path.",
+    characteristics: {
+      dataStructure: "Priority queue (current implementation uses a linear scan)",
+      timeComplexity: "O(V^2) with array, O((V+E) log V) with heap",
+      usesHeuristic: false,
+      selectionRule: "Pick the node with the smallest g(n)"
+    }
+  },
+  astar: {
+    name: "A* Search",
+    shortDescription: "Combines real cost so far with a heuristic estimate to guide the search.",
+    category: "weighted",
+    guaranteesOptimal: true,
+    howItWorks: [
+      "1. Set start cost = 0 and heuristic estimate to target",
+      "2. Pick the node with the lowest f = g + h",
+      "3. Update neighbors if a cheaper path is found",
+      "4. Mark the current node as visited",
+      "5. Repeat until the target is reached"
+    ],
+    pseudocode: [
+      "g[start] = 0",
+      "f[start] = h(start)",
+      "while open not empty:",
+      "  current = node with MIN f",
+      "  if current == target: DONE",
+      "  for each neighbor:",
+      "    gNew = g[current] + edgeCost",
+      "    if gNew < g[neighbor]:",
+      "      g[neighbor] = gNew",
+      "      f[neighbor] = gNew + h(neighbor)",
+      "      neighbor.prev = current"
+    ],
+    keyInsight: "A* stays optimal when the heuristic never overestimates.",
+    characteristics: {
+      dataStructure: "Priority queue (open set)",
+      timeComplexity: "O((V+E) log V) with heap",
+      usesHeuristic: true,
+      selectionRule: "Pick the node with the smallest f(n) = g(n) + h(n)"
+    }
+  },
+  greedy: {
+    name: "Greedy Best-first Search",
+    shortDescription: "Prioritizes nodes that look closest to the target using only h(n).",
+    category: "weighted",
+    guaranteesOptimal: false,
+    howItWorks: [
+      "1. Compute heuristic h for nodes",
+      "2. Pick the node with the smallest h",
+      "3. Expand neighbors and repeat",
+      "4. Stop when target is reached"
+    ],
+    pseudocode: [
+      "while open not empty:",
+      "  current = node with MIN h",
+      "  if current == target: DONE",
+      "  add neighbors to open",
+      "  mark current visited"
+    ],
+    keyInsight: "Fast, but can miss the shortest path because it ignores g(n).",
+    characteristics: {
+      dataStructure: "Priority queue (open set)",
+      timeComplexity: "O((V+E) log V) typical",
+      usesHeuristic: true,
+      selectionRule: "Pick the node with the smallest h(n)"
+    }
+  },
+  swarm: {
+    name: "Swarm Algorithm",
+    shortDescription: "Blends distance so far with a heuristic to guide the search.",
+    category: "weighted",
+    guaranteesOptimal: false,
+    howItWorks: [
+      "1. Compute a combined score from g and h",
+      "2. Pick the node with the smallest score",
+      "3. Relax neighbors and repeat",
+      "4. Stop when target is reached"
+    ],
+    pseudocode: [
+      "score = g + h",
+      "while open not empty:",
+      "  current = node with MIN score",
+      "  if current == target: DONE",
+      "  relax neighbors",
+      "  mark current visited"
+    ],
+    keyInsight: "Balances speed and path quality but does not guarantee optimal.",
+    characteristics: {
+      dataStructure: "Priority queue (open set)",
+      timeComplexity: "O((V+E) log V) typical",
+      usesHeuristic: true,
+      selectionRule: "Pick the node with the smallest blended score"
+    }
+  },
+  convergentSwarm: {
+    name: "Convergent Swarm Algorithm",
+    shortDescription: "Uses an aggressive heuristic (h^7) to rush toward the target.",
+    category: "weighted",
+    guaranteesOptimal: false,
+    howItWorks: [
+      "1. Use a heavily powered heuristic (h^7)",
+      "2. Pick the node with the smallest combined score",
+      "3. Relax neighbors and repeat quickly toward target"
+    ],
+    pseudocode: [
+      "score = g + h^7",
+      "while open not empty:",
+      "  current = node with MIN score",
+      "  if current == target: DONE",
+      "  relax neighbors"
+    ],
+    keyInsight: "Very fast but can skip better paths due to extreme heuristic bias.",
+    characteristics: {
+      dataStructure: "Priority queue (open set)",
+      timeComplexity: "O((V+E) log V) typical",
+      usesHeuristic: true,
+      selectionRule: "Pick the node with the smallest g + h^7"
+    }
+  },
+  bidirectional: {
+    name: "Bidirectional Swarm Algorithm",
+    shortDescription: "Runs two searches from start and target until they meet.",
+    category: "weighted",
+    guaranteesOptimal: false,
+    howItWorks: [
+      "1. Start one search from start and one from target",
+      "2. Expand nodes from both sides",
+      "3. Stop when the frontiers meet"
+    ],
+    pseudocode: [
+      "frontA = {start}, frontB = {target}",
+      "while frontA and frontB not empty:",
+      "  expand one step from each side",
+      "  if frontiers meet: DONE"
+    ],
+    keyInsight: "Can be faster in open grids but is not guaranteed optimal here.",
+    characteristics: {
+      dataStructure: "Two frontiers (priority queues)",
+      timeComplexity: "Often faster than single-source in practice",
+      usesHeuristic: true,
+      selectionRule: "Expand from both sides with heuristic guidance"
+    }
+  },
+  bfs: {
+    name: "Breadth-first Search",
+    shortDescription: "Explores level-by-level from the start using a queue.",
+    category: "unweighted",
+    guaranteesOptimal: true,
+    howItWorks: [
+      "1. Put the start node in a queue",
+      "2. Pop from the front and expand neighbors",
+      "3. Push unvisited neighbors to the back",
+      "4. Repeat until target is found"
+    ],
+    pseudocode: [
+      "queue = [start]",
+      "while queue not empty:",
+      "  current = queue.shift()",
+      "  if current == target: DONE",
+      "  for each neighbor:",
+      "    if unvisited: queue.push(neighbor)"
+    ],
+    keyInsight: "The first time you reach a node is the shortest path in unweighted grids.",
+    characteristics: {
+      dataStructure: "Queue",
+      timeComplexity: "O(V+E)",
+      usesHeuristic: false,
+      selectionRule: "FIFO (first-in, first-out)"
+    }
+  },
+  dfs: {
+    name: "Depth-first Search",
+    shortDescription: "Dives deep along one path before backtracking.",
+    category: "unweighted",
+    guaranteesOptimal: false,
+    howItWorks: [
+      "1. Push the start node onto a stack",
+      "2. Pop the top node and expand a neighbor",
+      "3. Keep going deep until stuck, then backtrack"
+    ],
+    pseudocode: [
+      "stack = [start]",
+      "while stack not empty:",
+      "  current = stack.pop()",
+      "  if current == target: DONE",
+      "  for each neighbor:",
+      "    if unvisited: stack.push(neighbor)"
+    ],
+    keyInsight: "DFS is fast but can take long detours and is not optimal.",
+    characteristics: {
+      dataStructure: "Stack",
+      timeComplexity: "O(V+E)",
+      usesHeuristic: false,
+      selectionRule: "LIFO (last-in, first-out)"
+    }
+  }
+};
+
+function getAlgorithmKey(algorithm, heuristic) {
+  if (algorithm === "CLA") {
+    if (heuristic === "extraPoweredManhattanDistance") return "convergentSwarm";
+    return "swarm";
+  }
+  return algorithm;
+}
+
+module.exports = { descriptions: descriptions, getAlgorithmKey: getAlgorithmKey };
+
+},{}],20:[function(require,module,exports){
+var algorithmDescriptions = require("./algorithmDescriptions");
+
+function showAlgorithmInfo(algorithmKey) {
+  var data = algorithmDescriptions.descriptions[algorithmKey];
+  if (!data) return;
+
+  // Remove old modal if it exists
+  var old = document.getElementById("algorithmInfoModal");
+  if (old && old.parentNode) old.parentNode.removeChild(old);
+
+  var html = '<div class="modal fade" id="algorithmInfoModal" tabindex="-1">' +
+    '<div class="modal-dialog modal-lg">' +
+    '<div class="modal-content algo-modal-content">' +
+    '<div class="modal-header">' +
+    '<button type="button" class="close" data-dismiss="modal">&times;</button>' +
+    '<h4 class="modal-title">' + data.name + '</h4>' +
+    '<span class="badge">' + data.category + '</span> ' +
+    '<span class="badge">' + (data.guaranteesOptimal ? "Optimal" : "Not optimal") + '</span>' +
+    '</div>' +
+    '<div class="modal-body">' +
+    '<p>' + data.shortDescription + '</p>' +
+    '<h5>How It Works</h5><ol>' +
+    data.howItWorks.map(function (s) { return '<li>' + s + '</li>'; }).join('') +
+    '</ol>' +
+    '<h5>Pseudocode</h5><pre class="algo-pseudocode">' +
+    data.pseudocode.join("\n") +
+    '</pre>' +
+    '<div class="algo-insight"><strong>Key Insight:</strong> ' + data.keyInsight + '</div>' +
+    '<h5>Characteristics</h5>' +
+    '<table class="table table-condensed">' +
+    '<tr><td>Data Structure</td><td>' + data.characteristics.dataStructure + '</td></tr>' +
+    '<tr><td>Time Complexity</td><td>' + data.characteristics.timeComplexity + '</td></tr>' +
+    '<tr><td>Uses Heuristic</td><td>' + (data.characteristics.usesHeuristic ? "Yes" : "No") + '</td></tr>' +
+    '<tr><td>Selection Rule</td><td>' + data.characteristics.selectionRule + '</td></tr>' +
+    '</table>' +
+    '</div>' +
+    '<div class="modal-footer">' +
+    '<button type="button" class="btn btn-default" data-dismiss="modal">Got it!</button>' +
+    '</div>' +
+    '</div></div></div>';
+
+  var wrapper = document.createElement("div");
+  wrapper.innerHTML = html;
+  var modal = wrapper.firstChild;
+  document.body.appendChild(modal);
+
+  $(modal).modal("show");
+
+  $(modal).on("hidden.bs.modal", function () {
+    if (modal.parentNode) modal.parentNode.removeChild(modal);
+  });
+}
+
+module.exports = { showAlgorithmInfo: showAlgorithmInfo };
+
+},{"./algorithmDescriptions":19}],21:[function(require,module,exports){
+function generateExplanation(event, algorithmKey) {
   var templates = {
     select_current: function (e) {
       var coords = idToCoords(e.current);
-      if (e.reason === "min_distance") {
-        return "Selected node " + coords + " because it has the lowest distance from start (g=" + e.values.g + ").";
-      } else if (e.reason === "min_total_distance") {
-        return "Selected node " + coords + " because it has the lowest total cost (f=" + e.values.f + " = g:" + e.values.g + " + h:" + e.values.h + ").";
-      } else if (e.reason === "fifo_queue") {
-        return "Selected node " + coords + " from the front of the queue (BFS explores level-by-level).";
-      } else if (e.reason === "lifo_stack") {
-        return "Selected node " + coords + " from the top of the stack (DFS explores depth-first).";
+      var algoContext = "";
+      if (algorithmKey === "dijkstra") {
+        algoContext = " Dijkstra always picks the cheapest unvisited node — this guarantees the optimal path.";
+      } else if (algorithmKey === "astar") {
+        algoContext = " A* combines actual cost g(n) with estimated distance h(n) to prioritize nodes likely on the shortest path.";
+      } else if (algorithmKey === "greedy") {
+        algoContext = " Greedy only looks at h(n) — fast but can miss shorter paths.";
+      } else if (algorithmKey === "swarm") {
+        algoContext = " Swarm blends g(n) and h(n) with moderate bias toward the target.";
+      } else if (algorithmKey === "convergentSwarm") {
+        algoContext = " Convergent Swarm uses an extremely aggressive heuristic (h^7) to rush toward the target.";
+      } else if (algorithmKey === "bfs") {
+        algoContext = " BFS explores level-by-level from start, guaranteeing the shortest path in unweighted grids.";
+      } else if (algorithmKey === "dfs") {
+        algoContext = " DFS dives as deep as possible before backtracking — fast but does not guarantee shortest path.";
+      } else if (algorithmKey === "bidirectional") {
+        algoContext = " Bidirectional search runs two simultaneous explorations from start and target.";
       }
-      return "Selected node " + coords + ".";
+      if (e.reason === "min_distance") {
+        return "Selected node " + coords + " because it has the lowest distance from start (g=" + e.values.g + ")." + algoContext;
+      } else if (e.reason === "min_total_distance") {
+        return "Selected node " + coords + " because it has the lowest total cost (f=" + e.values.f + " = g:" + e.values.g + " + h:" + e.values.h + ")." + algoContext;
+      } else if (e.reason === "fifo_queue") {
+        return "Selected node " + coords + " from the front of the queue (BFS explores level-by-level)." + algoContext;
+      } else if (e.reason === "lifo_stack") {
+        return "Selected node " + coords + " from the top of the stack (DFS explores depth-first)." + algoContext;
+      }
+      return "Selected node " + coords + "." + algoContext;
     },
 
     evaluating_neighbors: function (e) {
@@ -3754,7 +4267,13 @@ function generateExplanation(event) {
       if (e.components.weight > 0) {
         costBreakdown += " + weight=" + e.components.weight;
       }
-      return "Found shorter path to " + toCoords + " via " + fromCoords + ". New cost: " + e.new.g + " (" + costBreakdown + "). Old cost: " + e.old.g + ".";
+      var relaxContext = "";
+      if (algorithmKey === "astar") {
+        relaxContext = " A* also updates f = g + h, so nodes closer to the target get higher priority.";
+      } else if (algorithmKey === "dijkstra") {
+        relaxContext = " Dijkstra updates only g (actual cost) — no heuristic involved.";
+      }
+      return "Found a cheaper route to " + toCoords + " through " + fromCoords + "! New cost: " + e.new.g + " (" + costBreakdown + "). Was: " + e.old.g + "." + relaxContext;
     },
 
     skip_neighbor: function (e) {
@@ -3799,7 +4318,7 @@ function idToCoords(id) {
 
 module.exports = { generateExplanation: generateExplanation };
 
-},{}],19:[function(require,module,exports){
+},{}],22:[function(require,module,exports){
 /**
  * Calculate grid metrics for Feynman explanations
  *
@@ -3906,7 +4425,7 @@ function computePathLengthFromBoard(board) {
 
 module.exports = { calculateGridMetrics: calculateGridMetrics };
 
-},{}],20:[function(require,module,exports){
+},{}],23:[function(require,module,exports){
 /**
  * History Storage Module
  * Manages run history in localStorage with 5-run limit
@@ -3996,7 +4515,7 @@ module.exports = {
     MAX_RUNS: MAX_RUNS
 };
 
-},{}],21:[function(require,module,exports){
+},{}],24:[function(require,module,exports){
 var historyStorage = require("./historyStorage");
 
 function formatTimestamp(ts) {
@@ -4240,7 +4759,7 @@ module.exports = {
   loadRun: loadRun
 };
 
-},{"./historyStorage":20}],22:[function(require,module,exports){
+},{"./historyStorage":23}],25:[function(require,module,exports){
 /**
  * Run Serializer Module
  * Converts board state to a portable JSON-serializable object
@@ -4382,7 +4901,7 @@ function computePathCost(board) {
 
 module.exports = serializeRun;
 
-},{}],23:[function(require,module,exports){
+},{}],26:[function(require,module,exports){
 const gridMetrics = require("./gridMetrics");
 
 /**
@@ -4529,4 +5048,4 @@ function reconstructPath(board) {
 
 module.exports = { analyzeWeightImpact: analyzeWeightImpact };
 
-},{"./gridMetrics":19}]},{},[4]);
+},{"./gridMetrics":22}]},{},[5]);
