@@ -7615,3 +7615,60 @@ footer p {
 .component-label {
   color: #888;
 }
+
+/* Algorithm Info Modal */
+.algo-modal-content {
+  background: #1a1a2e;
+  color: #e0e0e0;
+  border: 1px solid #333;
+}
+
+.algo-modal-content .modal-header {
+  border-bottom: 1px solid #333;
+}
+
+.algo-modal-content .modal-footer {
+  border-top: 1px solid #333;
+}
+
+.algo-modal-content .badge {
+  margin-left: 6px;
+  background: #16213e;
+  color: #82aaff;
+}
+
+.algo-pseudocode {
+  background: #0f3460;
+  color: #e0e0e0;
+  padding: 12px;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 13px;
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.algo-insight {
+  background: #16213e;
+  padding: 10px 14px;
+  border-radius: 4px;
+  border-left: 4px solid #e94560;
+  margin: 12px 0;
+}
+
+.algo-modal-content .table {
+  color: #e0e0e0;
+}
+
+.algo-modal-content .table td {
+  border-color: #333;
+}
+
+/* Animation Controls */
+#animationControls .btn {
+  margin: 8px 2px;
+}
+
+#animationControls .glyphicon {
+  margin-right: 4px;
+}

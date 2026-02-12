@@ -48,6 +48,15 @@
           </li>
           <li id='startButtonStart'><button id="actualStartButton" class="btn btn-default navbar-btn"
               type="button">Visualize!</button></li>
+          <li id="animationControls" class="hidden">
+            <button id="pauseResumeBtn" class="btn btn-default navbar-btn" type="button">
+              <span class="glyphicon glyphicon-pause"></span> Pause
+            </button>
+            <button id="stepForwardBtn" class="btn btn-default navbar-btn" type="button">
+              <span class="glyphicon glyphicon-step-forward"></span> Step
+            </button>
+            <span id="animationProgress" class="navbar-text" style="margin-left:8px;color:#666;font-size:12px;"></span>
+          </li>
           <li id='startButtonClearBoard'><a href="#">Clear Board</a></li>
           <li id='startButtonClearWalls'><a href="#">Clear Walls &amp; Weights</a></li>
           <li id='startButtonClearPath'><a href="#">Clear Path</a></li>
@@ -154,9 +163,9 @@
         <div id="currentNodeInfo" class="node-info">
           <div class="node-coords">—</div>
           <div class="node-costs">
-            <span class="cost-label">g:</span> <span id="gCost">—</span>
-            <span class="cost-label">h:</span> <span id="hCost">—</span>
-            <span class="cost-label">f:</span> <span id="fCost">—</span>
+            <span id="gLabel" class="cost-label">g:</span> <span id="gCost">—</span>
+            <span id="hLabel" class="cost-label">h:</span> <span id="hCost">—</span>
+            <span id="fLabel" class="cost-label">f:</span> <span id="fCost">—</span>
           </div>
         </div>
       </div>
