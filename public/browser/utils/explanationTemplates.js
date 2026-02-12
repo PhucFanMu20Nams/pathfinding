@@ -1,17 +1,35 @@
-function generateExplanation(event) {
+function generateExplanation(event, algorithmKey) {
   var templates = {
     select_current: function (e) {
       var coords = idToCoords(e.current);
-      if (e.reason === "min_distance") {
-        return "Selected node " + coords + " because it has the lowest distance from start (g=" + e.values.g + ").";
-      } else if (e.reason === "min_total_distance") {
-        return "Selected node " + coords + " because it has the lowest total cost (f=" + e.values.f + " = g:" + e.values.g + " + h:" + e.values.h + ").";
-      } else if (e.reason === "fifo_queue") {
-        return "Selected node " + coords + " from the front of the queue (BFS explores level-by-level).";
-      } else if (e.reason === "lifo_stack") {
-        return "Selected node " + coords + " from the top of the stack (DFS explores depth-first).";
+      var algoContext = "";
+      if (algorithmKey === "dijkstra") {
+        algoContext = " Dijkstra always picks the cheapest unvisited node — this guarantees the optimal path.";
+      } else if (algorithmKey === "astar") {
+        algoContext = " A* combines actual cost g(n) with estimated distance h(n) to prioritize nodes likely on the shortest path.";
+      } else if (algorithmKey === "greedy") {
+        algoContext = " Greedy only looks at h(n) — fast but can miss shorter paths.";
+      } else if (algorithmKey === "swarm") {
+        algoContext = " Swarm blends g(n) and h(n) with moderate bias toward the target.";
+      } else if (algorithmKey === "convergentSwarm") {
+        algoContext = " Convergent Swarm uses an extremely aggressive heuristic (h^7) to rush toward the target.";
+      } else if (algorithmKey === "bfs") {
+        algoContext = " BFS explores level-by-level from start, guaranteeing the shortest path in unweighted grids.";
+      } else if (algorithmKey === "dfs") {
+        algoContext = " DFS dives as deep as possible before backtracking — fast but does not guarantee shortest path.";
+      } else if (algorithmKey === "bidirectional") {
+        algoContext = " Bidirectional search runs two simultaneous explorations from start and target.";
       }
-      return "Selected node " + coords + ".";
+      if (e.reason === "min_distance") {
+        return "Selected node " + coords + " because it has the lowest distance from start (g=" + e.values.g + ")." + algoContext;
+      } else if (e.reason === "min_total_distance") {
+        return "Selected node " + coords + " because it has the lowest total cost (f=" + e.values.f + " = g:" + e.values.g + " + h:" + e.values.h + ")." + algoContext;
+      } else if (e.reason === "fifo_queue") {
+        return "Selected node " + coords + " from the front of the queue (BFS explores level-by-level)." + algoContext;
+      } else if (e.reason === "lifo_stack") {
+        return "Selected node " + coords + " from the top of the stack (DFS explores depth-first)." + algoContext;
+      }
+      return "Selected node " + coords + "." + algoContext;
     },
 
     evaluating_neighbors: function (e) {
@@ -29,7 +47,13 @@ function generateExplanation(event) {
       if (e.components.weight > 0) {
         costBreakdown += " + weight=" + e.components.weight;
       }
-      return "Found shorter path to " + toCoords + " via " + fromCoords + ". New cost: " + e.new.g + " (" + costBreakdown + "). Old cost: " + e.old.g + ".";
+      var relaxContext = "";
+      if (algorithmKey === "astar") {
+        relaxContext = " A* also updates f = g + h, so nodes closer to the target get higher priority.";
+      } else if (algorithmKey === "dijkstra") {
+        relaxContext = " Dijkstra updates only g (actual cost) — no heuristic involved.";
+      }
+      return "Found a cheaper route to " + toCoords + " through " + fromCoords + "! New cost: " + e.new.g + " (" + costBreakdown + "). Was: " + e.old.g + "." + relaxContext;
     },
 
     skip_neighbor: function (e) {
